@@ -696,6 +696,26 @@
 		error = null;
 	}
 
+	function handleActivate(index: number) {
+		// Force-activate a history position to recover from stuck states
+		// Set to index - 1 so the selected action becomes the next playable one
+		replayedUpTo = index - 1;
+		// Clear any loading states that might be stuck
+		actionLoading = false;
+		replayLoading = false;
+		pendingAction = null;
+		pendingActionPreview = null;
+		stopScreenshotPolling();
+		// Clear edit state
+		manualEditMode = false;
+		editingActionIndex = null;
+		selectedAction = null;
+		explanation = '';
+		clickCoordinates = null;
+		typeText = '';
+		error = null;
+	}
+
 	// Clear form when exiting manual edit mode
 	$effect(() => {
 		if (!manualEditMode && editingActionIndex !== null) {
@@ -813,6 +833,7 @@
 							onNavigateTo={handleNavigateTo}
 							{navigatingIndex}
 							{pendingActionPreview}
+							onActivate={handleActivate}
 						/>
 						{#snippet failed()}
 							<div class="error">Failed to render session history. Please refresh the page.</div>

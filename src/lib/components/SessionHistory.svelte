@@ -43,6 +43,7 @@
 			direction?: 'up' | 'down';
 			text?: string;
 		} | null;
+		onActivate?: (index: number) => void;
 	}
 
 	let {
@@ -63,7 +64,8 @@
 		onAddNew,
 		onNavigateTo,
 		navigatingIndex = null,
-		pendingActionPreview = null
+		pendingActionPreview = null,
+		onActivate
 	}: Props = $props();
 
 	function canReplay(index: number): boolean {
@@ -104,11 +106,10 @@
 	}
 
 	function canNavigateTo(index: number): boolean {
-		// Can navigate if action caused navigation and not already replayed past this point
+		// Can navigate if action caused navigation and no other navigation is in progress
 		return (
 			onNavigateTo !== undefined &&
 			causedNavigation(index) &&
-			index >= replayedUpTo &&
 			loadingIndex === null &&
 			navigatingIndex === null
 		);
@@ -264,70 +265,83 @@
 						{/if}
 					</button>
 				{/if}
-				{#if onReplay || (onDelete && index === actions.length - 1) || onSelectForEdit || onNavigateTo}
+				{#if onReplay || onDelete || onSelectForEdit || onNavigateTo || onActivate}
 					<div class="action-buttons">
-						{#if onReplay}
-							<button
-								class="play-action-btn"
-								class:loading={isLoading(index)}
-								class:queued={isQueued(index)}
-								class:will-queue={showAsQueueButton(index)}
-								onclick={() => onReplay(index)}
-								disabled={!canReplay(index)}
-								title={isLoading(index) ? 'Running...' : isQueued(index) ? 'Queued' : showAsQueueButton(index) ? 'Click to queue' : isReplayed(index) ? 'Already played' : canReplay(index) ? 'Play action' : 'Play previous actions first'}
-							>
-								{#if isLoading(index)}
-									<span class="spinner"></span>
-								{:else if isQueued(index)}
-									⏳
-								{:else if showAsQueueButton(index)}
-									+▶
-								{:else if isReplayed(index)}
-									✓
-								{:else}
-									▶
-								{/if}
-							</button>
-						{/if}
-						{#if onNavigateTo && causedNavigation(index) && !isReplayed(index)}
-							<button
-								class="navigate-action-btn"
-								class:loading={isNavigating(index)}
-								onclick={() => onNavigateTo(index, actions[index].afterUrl!)}
-								disabled={!canNavigateTo(index)}
-								title={isNavigating(index) ? 'Navigating...' : `Navigate to result URL`}
-							>
-								{#if isNavigating(index)}
-									<span class="spinner"></span>
-								{:else}
-									↗
-								{/if}
-							</button>
-						{/if}
-						{#if onSelectForEdit && editingIndex !== index}
-							<button
-								class="edit-action-btn"
-								onclick={() => onSelectForEdit(index)}
-								title="Edit this action"
-							>
-								✎
-							</button>
-						{/if}
-						{#if onDelete}
-							<button
-								class="delete-action-btn"
-								class:loading={deletingIndex === index}
-								onclick={() => onDelete(index)}
-								disabled={deletingIndex !== null}
-								title="Delete this action"
-							>
-								{#if deletingIndex === index}
-									<span class="spinner"></span>
-								{:else}
-									×
-								{/if}
-							</button>
-						{/if}
+						<div class="button-row">
+							{#if onReplay}
+								<button
+									class="play-action-btn"
+									class:loading={isLoading(index)}
+									class:queued={isQueued(index)}
+									class:will-queue={showAsQueueButton(index)}
+									onclick={() => onReplay(index)}
+									disabled={!canReplay(index)}
+									title={isLoading(index) ? 'Running...' : isQueued(index) ? 'Queued' : showAsQueueButton(index) ? 'Click to queue' : isReplayed(index) ? 'Already played' : canReplay(index) ? 'Play action' : 'Play previous actions first'}
+								>
+									{#if isLoading(index)}
+										<span class="spinner"></span>
+									{:else if isQueued(index)}
+										⏳
+									{:else if showAsQueueButton(index)}
+										+▶
+									{:else if isReplayed(index)}
+										✓
+									{:else}
+										▶
+									{/if}
+								</button>
+							{/if}
+							{#if onNavigateTo && causedNavigation(index)}
+								<button
+									class="navigate-action-btn"
+									class:loading={isNavigating(index)}
+									onclick={() => onNavigateTo(index, actions[index].afterUrl!)}
+									disabled={!canNavigateTo(index)}
+									title={isNavigating(index) ? 'Navigating...' : `Navigate to result URL`}
+								>
+									{#if isNavigating(index)}
+										<span class="spinner"></span>
+									{:else}
+										↗
+									{/if}
+								</button>
+							{/if}
+							{#if onActivate && index !== replayedUpTo}
+								<button
+									class="activate-action-btn"
+									onclick={() => onActivate(index)}
+									title="Activate this position (continue from here)"
+								>
+									⎋
+								</button>
+							{/if}
+						</div>
+						<div class="button-row">
+							{#if onSelectForEdit && editingIndex !== index}
+								<button
+									class="edit-action-btn"
+									onclick={() => onSelectForEdit(index)}
+									title="Edit this action"
+								>
+									✎
+								</button>
+							{/if}
+							{#if onDelete}
+								<button
+									class="delete-action-btn"
+									class:loading={deletingIndex === index}
+									onclick={() => onDelete(index)}
+									disabled={deletingIndex !== null}
+									title="Delete this action"
+								>
+									{#if deletingIndex === index}
+										<span class="spinner"></span>
+									{:else}
+										×
+									{/if}
+								</button>
+							{/if}
+						</div>
 					</div>
 				{/if}
 			</div>
@@ -554,6 +568,7 @@
 	.actions-list {
 		display: flex;
 		flex-direction: row;
+		align-items: flex-start;
 		gap: 0.5rem;
 		overflow-x: auto;
 		padding-bottom: 0.5rem;
@@ -649,9 +664,20 @@
 
 	.action-buttons {
 		display: flex;
-		gap: 0.5rem;
+		flex-direction: column;
+		gap: 0.35rem;
 		margin-top: auto;
 		padding-top: 0.5rem;
+		min-height: 60px; /* Space for 2 rows of buttons */
+	}
+
+	.button-row {
+		display: flex;
+		gap: 0.35rem;
+	}
+
+	.button-row:empty {
+		display: none;
 	}
 
 	.action-type {
@@ -781,6 +807,25 @@
 
 	.edit-action-btn:hover {
 		background: var(--color-purple-hover);
+	}
+
+	.activate-action-btn {
+		flex: 1;
+		padding: 0.4rem 0.5rem;
+		font-size: 0.85rem;
+		background: var(--color-text-muted);
+		color: white;
+		border: none;
+		border-radius: 4px;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 28px;
+	}
+
+	.activate-action-btn:hover {
+		background: var(--color-text-secondary);
 	}
 
 	.navigate-action-btn {
