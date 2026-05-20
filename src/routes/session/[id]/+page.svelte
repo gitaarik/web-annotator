@@ -493,13 +493,8 @@
 			clickCoordinates = null;
 			typeText = '';
 
-			// Replay from the edited action through all remaining actions
-			for (let i = startIndex; i < actions.length; i++) {
-				await handleReplayAction(i);
-			}
-
-			// Reset replay state to exit replay mode and enter "add new" mode
-			replayedUpTo = -1;
+			// Replay only the edited action
+			await handleReplayAction(startIndex);
 		} catch (e) {
 			error = getErrorMessage(e);
 		} finally {
