@@ -46,6 +46,7 @@
 	let hoverInfo = $state<HoverInfo>(null);
 	let editingActionIndex = $state<number | null>(null);
 	let manualEditMode = $state(false);
+	let navigatedToStep = $state(false); // True after direct navigation, prevents auto-populating form
 	let pollingInterval = $state<ReturnType<typeof setInterval> | null>(null);
 
 	// Visual loading state (can be hidden while action still processing)
@@ -165,6 +166,9 @@
 
 	async function handleReplayAction(index: number) {
 		if (!session.id || !tabId || index < 0 || index >= actions.length) return;
+
+		// Clear navigated state when user manually replays
+		navigatedToStep = false;
 
 		// If replay already running, queue this one
 		if (replayLoading) {
@@ -422,6 +426,14 @@
 		navigatingIndex = index;
 		error = null;
 
+		// Clear any edit state first to prevent auto-populating the form
+		manualEditMode = false;
+		editingActionIndex = null;
+		selectedAction = null;
+		explanation = '';
+		clickCoordinates = null;
+		typeText = '';
+
 		try {
 			const response = await apiRequest<{
 				screenshotPath: string;
@@ -439,7 +451,9 @@
 			tabId = response.tabId;
 
 			// Set replayedUpTo to index - 1 so this action becomes the next playable
+			// Set navigatedToStep to prevent auto-populating the form
 			replayedUpTo = index - 1;
+			navigatedToStep = true;
 		} catch (e) {
 			error = getErrorMessage(e);
 		} finally {
@@ -508,6 +522,7 @@
 	function handleSelectForEdit(index: number) {
 		const action = actions[index];
 		manualEditMode = true;
+		navigatedToStep = false; // Clear navigated state when manually editing
 		editingActionIndex = index;
 
 		// Reset all action-specific fields first
@@ -664,6 +679,7 @@
 	function handleAddNew() {
 		// Clear any edit state and prepare for adding a new action
 		manualEditMode = false;
+		navigatedToStep = false;
 		editingActionIndex = null;
 		replayedUpTo = -1; // Exit replay mode to enable "add new" mode
 		selectedAction = null;
@@ -675,8 +691,8 @@
 
 	// Auto-populate form with next action when in replay edit mode (not manual edit)
 	$effect(() => {
-		// Skip if in manual edit mode or if replay is still loading
-		if (manualEditMode || replayLoading) return;
+		// Skip if in manual edit mode, replay is loading, or we just navigated to a step
+		if (manualEditMode || replayLoading || navigatedToStep) return;
 
 		if (nextActionIndex !== null) {
 			const action = actions[nextActionIndex];
