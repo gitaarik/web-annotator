@@ -584,7 +584,7 @@
 			<p>Total actions: {actions.length}</p>
 			<p>Final answer: {actions[actions.length - 1]?.explanation}</p>
 
-			<SessionHistory {actions} onDelete={handleDeleteAction} {deleteLoading} />
+			<SessionHistory {actions} {viewport} onDelete={handleDeleteAction} {deleteLoading} />
 
 			<button onclick={resetSession}>Start New Session</button>
 		</section>
@@ -614,6 +614,7 @@
 				<div class="history-section">
 					<SessionHistory
 						{actions}
+						{viewport}
 						{replayedUpTo}
 						onReplay={handleReplayAction}
 						{replayLoading}

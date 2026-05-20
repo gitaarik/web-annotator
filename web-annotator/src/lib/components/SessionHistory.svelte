@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { type Action, type HoverInfo, formatAction } from '$lib/types';
+	import ScreenshotViewer from './ScreenshotViewer.svelte';
 
 	let copiedUrl: string | null = $state(null);
+	let expandedAction: Action | null = $state(null);
 
 	function formatUrlParts(url: string): { line1: string; line2: string | null } {
 		const singleLineMax = 40; // URLs up to this length stay on one line (CSS handles overflow)
@@ -51,6 +53,7 @@
 
 	interface Props {
 		actions: Action[];
+		viewport?: { width: number; height: number };
 		replayedUpTo?: number;
 		onReplay?: (index: number) => void;
 		replayLoading?: boolean;
@@ -62,6 +65,7 @@
 
 	let {
 		actions,
+		viewport = { width: 1280, height: 800 },
 		replayedUpTo = -1,
 		onReplay,
 		replayLoading = false,
@@ -70,6 +74,19 @@
 		onHoverAction,
 		editingIndex = null
 	}: Props = $props();
+
+	function actionToHoverInfo(action: Action): HoverInfo {
+		if (action.type === 'click' && action.coordinates) {
+			return { type: 'click', coordinates: action.coordinates };
+		}
+		if (action.type === 'scroll' && action.direction) {
+			return { type: 'scroll', direction: action.direction };
+		}
+		if (action.type === 'type' && action.text) {
+			return { type: 'type', text: action.text };
+		}
+		return null;
+	}
 
 	function canReplay(index: number): boolean {
 		return onReplay !== undefined && index === replayedUpTo + 1 && !replayLoading;
@@ -149,6 +166,27 @@
 						{/if}
 					</div>
 				</div>
+				{#if action.screenshotPath}
+					<button
+						class="screenshot-thumbnail"
+						onclick={() => expandedAction = action}
+						title="Click to enlarge"
+					>
+						<img src={action.screenshotPath} alt="Screenshot for action {index + 1}" />
+						{#if action.type === 'click' && action.coordinates}
+							<div
+								class="thumbnail-click-marker"
+								style="left: {action.coordinates.x * 80 / viewport.height}px; top: {action.coordinates.y * 80 / viewport.height}px;"
+							></div>
+						{:else if action.type === 'scroll' && action.direction}
+							<div class="thumbnail-scroll-marker" class:scroll-up={action.direction === 'up'}>
+								{action.direction === 'up' ? '↑' : '↓'}
+							</div>
+						{:else if action.type === 'type'}
+							<div class="thumbnail-type-marker">⌨</div>
+						{/if}
+					</button>
+				{/if}
 				<div class="action-type">{formatAction(action)}</div>
 				<div class="action-explanation">{action.explanation}</div>
 				<div class="action-url-container">
@@ -177,6 +215,20 @@
 		{/each}
 	</div>
 </div>
+
+{#if expandedAction?.screenshotPath}
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div class="screenshot-modal" onclick={() => expandedAction = null} onkeydown={(e) => e.key === 'Escape' && (expandedAction = null)}>
+		<button class="modal-close" onclick={() => expandedAction = null}>×</button>
+		<div class="modal-screenshot">
+			<ScreenshotViewer
+				src={expandedAction.screenshotPath}
+				{viewport}
+				hoverInfo={actionToHoverInfo(expandedAction)}
+			/>
+		</div>
+	</div>
+{/if}
 
 <style>
 	.session-history {
@@ -358,5 +410,123 @@
 	.delete-action-btn:disabled {
 		background: #ccc;
 		cursor: not-allowed;
+	}
+
+	.screenshot-thumbnail {
+		position: relative;
+		width: 100%;
+		height: 80px;
+		padding: 0;
+		border: 1px solid #ddd;
+		border-radius: 4px;
+		overflow: hidden;
+		cursor: pointer;
+		background: #f5f5f5;
+	}
+
+	.screenshot-thumbnail:hover {
+		border-color: #0066cc;
+	}
+
+	.screenshot-thumbnail img {
+		position: absolute;
+		top: 0;
+		left: 0;
+		height: 80px;
+		width: auto;
+	}
+
+	.thumbnail-click-marker {
+		position: absolute;
+		width: 12px;
+		height: 12px;
+		border: 2px solid #f59e0b;
+		background: rgba(245, 158, 11, 0.3);
+		border-radius: 50%;
+		transform: translate(-50%, -50%);
+		pointer-events: none;
+	}
+
+	.thumbnail-scroll-marker {
+		position: absolute;
+		bottom: 4px;
+		left: 50%;
+		transform: translateX(-50%);
+		background: rgba(245, 158, 11, 0.9);
+		color: white;
+		font-size: 0.7rem;
+		font-weight: bold;
+		padding: 2px 6px;
+		border-radius: 3px;
+		pointer-events: none;
+	}
+
+	.thumbnail-scroll-marker.scroll-up {
+		bottom: auto;
+		top: 4px;
+	}
+
+	.thumbnail-type-marker {
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		transform: translate(-50%, -50%);
+		background: rgba(245, 158, 11, 0.9);
+		color: white;
+		font-size: 0.8rem;
+		padding: 4px 8px;
+		border-radius: 3px;
+		pointer-events: none;
+	}
+
+	.screenshot-modal {
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.85);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 1000;
+		padding: 2rem;
+		cursor: pointer;
+	}
+
+	.modal-screenshot {
+		max-width: 100%;
+		max-height: 100%;
+		cursor: default;
+	}
+
+	.modal-screenshot :global(.screenshot-container) {
+		border-radius: 8px;
+		box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+	}
+
+	.modal-screenshot :global(.screenshot-container img) {
+		max-height: 85vh;
+		width: auto;
+	}
+
+	.modal-close {
+		position: absolute;
+		top: 1rem;
+		right: 1rem;
+		width: 40px;
+		height: 40px;
+		border: none;
+		border-radius: 50%;
+		background: rgba(255, 255, 255, 0.2);
+		color: white;
+		font-size: 1.5rem;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: background 0.15s;
+		z-index: 1;
+	}
+
+	.modal-close:hover {
+		background: rgba(255, 255, 255, 0.3);
 	}
 </style>
