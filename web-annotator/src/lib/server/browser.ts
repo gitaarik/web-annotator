@@ -4,7 +4,8 @@ import * as path from 'path';
 
 const VIEWPORT = { width: 1280, height: 800 };
 const SCROLL_AMOUNT = 400;
-const NETWORK_IDLE_TIMEOUT = 5000; // Max time to wait for network idle
+const DOM_STABLE_TIMEOUT = 500; // Time with no mutations to consider DOM stable
+const MAX_WAIT_TIMEOUT = 10000; // Max time to wait for page stability
 
 let browser: Browser | null = null;
 let page: Page | null = null;
@@ -25,11 +26,58 @@ async function getPage(): Promise<Page> {
 	return page;
 }
 
-async function waitForNetworkIdle(p: Page): Promise<void> {
+async function waitForPageStable(p: Page): Promise<void> {
 	try {
-		await p.waitForLoadState('networkidle', { timeout: NETWORK_IDLE_TIMEOUT });
+		// First ensure the page has fired its load event
+		await p.waitForLoadState('load', { timeout: MAX_WAIT_TIMEOUT });
 	} catch {
-		// Timeout is ok - we don't want to block forever
+		// Timeout is ok - continue to DOM stability check
+	}
+
+	// Then wait for DOM stability - no mutations for DOM_STABLE_TIMEOUT ms
+	try {
+		await p.evaluate(
+			([stableTime, maxTime]) => {
+				return new Promise<void>((resolve) => {
+					let timeoutId: ReturnType<typeof setTimeout>;
+					const startTime = Date.now();
+
+					const observer = new MutationObserver(() => {
+						// Reset the timer on each mutation
+						clearTimeout(timeoutId);
+
+						// Check if we've exceeded max wait time
+						if (Date.now() - startTime > maxTime) {
+							observer.disconnect();
+							resolve();
+							return;
+						}
+
+						// Wait for stability period with no mutations
+						timeoutId = setTimeout(() => {
+							observer.disconnect();
+							resolve();
+						}, stableTime);
+					});
+
+					observer.observe(document.body, {
+						childList: true,
+						subtree: true,
+						attributes: true,
+						characterData: true
+					});
+
+					// Initial timeout in case there are no mutations at all
+					timeoutId = setTimeout(() => {
+						observer.disconnect();
+						resolve();
+					}, stableTime);
+				});
+			},
+			[DOM_STABLE_TIMEOUT, MAX_WAIT_TIMEOUT] as const
+		);
+	} catch {
+		// If evaluate fails, just continue
 	}
 }
 
@@ -38,7 +86,8 @@ export async function navigateAndScreenshot(
 	sessionId: string
 ): Promise<string> {
 	const p = await getPage();
-	await p.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
+	await p.goto(url, { waitUntil: 'load', timeout: 30000 });
+	await waitForPageStable(p);
 
 	const screenshotDir = path.join(process.cwd(), 'static', 'screenshots', sessionId);
 	await fs.mkdir(screenshotDir, { recursive: true });
@@ -57,7 +106,7 @@ export async function executeClick(
 ): Promise<string> {
 	const p = await getPage();
 	await p.mouse.click(x, y);
-	await waitForNetworkIdle(p);
+	await waitForPageStable(p);
 
 	const screenshotPath = path.join(
 		process.cwd(),
@@ -79,7 +128,7 @@ export async function executeScroll(
 	const p = await getPage();
 	const scrollY = direction === 'down' ? SCROLL_AMOUNT : -SCROLL_AMOUNT;
 	await p.mouse.wheel(0, scrollY);
-	await waitForNetworkIdle(p);
+	await waitForPageStable(p);
 
 	const screenshotPath = path.join(
 		process.cwd(),
@@ -100,7 +149,7 @@ export async function executeType(
 ): Promise<string> {
 	const p = await getPage();
 	await p.keyboard.type(text, { delay: 50 });
-	await waitForNetworkIdle(p);
+	await waitForPageStable(p);
 
 	const screenshotPath = path.join(
 		process.cwd(),
@@ -119,7 +168,7 @@ export async function executeWait(
 	actionIndex: number
 ): Promise<string> {
 	const p = await getPage();
-	await waitForNetworkIdle(p);
+	await waitForPageStable(p);
 
 	const screenshotPath = path.join(
 		process.cwd(),
@@ -153,9 +202,9 @@ export async function replaySingleAction(
 	} else if (action.type === 'type' && action.text) {
 		await p.keyboard.type(action.text, { delay: 50 });
 	}
-	// For 'wait' and 'stop' actions, just wait for network idle
+	// For 'wait' and 'stop' actions, just wait for page stability
 
-	await waitForNetworkIdle(p);
+	await waitForPageStable(p);
 
 	const screenshotPath = path.join(
 		process.cwd(),
