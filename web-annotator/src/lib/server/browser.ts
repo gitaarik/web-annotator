@@ -232,3 +232,8 @@ export async function closeBrowser(): Promise<void> {
 export function getViewport() {
 	return VIEWPORT;
 }
+
+export async function initBrowser(): Promise<void> {
+	await getPage();
+	console.log('Browser initialized and ready');
+}
