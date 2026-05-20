@@ -260,9 +260,16 @@
 	</div>
 </div>
 
+<svelte:window onkeydown={(e) => {
+	if (e.key === 'Escape') {
+		if (expandedAction) expandedAction = null;
+		else if (expandedScreenshotSrc) expandedScreenshotSrc = null;
+	}
+}} />
+
 {#if expandedAction?.screenshotPath}
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div class="screenshot-modal" onclick={() => expandedAction = null} onkeydown={(e) => e.key === 'Escape' && (expandedAction = null)}>
+	<div class="screenshot-modal" onclick={() => expandedAction = null}>
 		<button class="modal-close" onclick={() => expandedAction = null}>×</button>
 		<div class="modal-screenshot">
 			<ScreenshotViewer
@@ -276,7 +283,7 @@
 
 {#if expandedScreenshotSrc}
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div class="screenshot-modal" onclick={() => expandedScreenshotSrc = null} onkeydown={(e) => e.key === 'Escape' && (expandedScreenshotSrc = null)}>
+	<div class="screenshot-modal" onclick={() => expandedScreenshotSrc = null}>
 		<button class="modal-close" onclick={() => expandedScreenshotSrc = null}>×</button>
 		<div class="modal-screenshot">
 			<ScreenshotViewer
