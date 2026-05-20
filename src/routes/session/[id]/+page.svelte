@@ -454,8 +454,8 @@
 
 <main>
 	<div class="page-header">
-		<button class="back-btn" onclick={goHome}>&larr; Back</button>
-		<h1>Web Browser Annotation Tool</h1>
+		<button class="back-btn" onclick={goHome}>&larr;</button>
+		<span class="page-title">Web Annotator</span>
 	</div>
 
 	{#if error}
@@ -606,32 +606,33 @@
 	main {
 		max-width: 1400px;
 		margin: 0 auto;
-		padding: var(--space-2xl);
+		padding: var(--space-lg);
 	}
 
 	.page-header {
 		display: flex;
 		align-items: center;
-		gap: var(--space-lg);
-		margin-bottom: var(--space-2xl);
+		gap: var(--space-sm);
+		margin-bottom: var(--space-md);
 	}
 
 	.back-btn {
-		background: var(--color-bg-tertiary);
-		color: var(--color-text-secondary);
-		border: 1px solid var(--color-border);
-		padding: var(--space-sm) var(--space-lg);
+		background: none;
+		color: var(--color-text-muted);
+		border: none;
+		padding: var(--space-xs) var(--space-sm);
 		font-size: 0.9rem;
 	}
 
 	.back-btn:hover {
-		background: var(--color-bg-secondary);
-		border-color: var(--color-border-hover);
+		background: var(--color-bg-tertiary);
+		color: var(--color-text-primary);
 	}
 
-	h1 {
-		margin: 0;
-		color: var(--color-text-primary);
+	.page-title {
+		font-size: 0.9rem;
+		font-weight: 500;
+		color: var(--color-text-muted);
 	}
 
 	h2 {
@@ -668,10 +669,7 @@
 	}
 
 	.annotation-interface {
-		background: var(--color-bg-white);
-		padding: var(--space-2xl);
-		border-radius: var(--radius-xl);
-		box-shadow: var(--shadow-card);
+		display: contents;
 	}
 
 	.task-info {
@@ -823,13 +821,6 @@
 		margin-bottom: var(--space-xl);
 		padding-bottom: var(--space-xl);
 		border-bottom: 1px solid var(--color-border-light);
-	}
-
-	.completed {
-		background: var(--color-bg-white);
-		padding: var(--space-2xl);
-		border-radius: var(--radius-xl);
-		box-shadow: var(--shadow-card);
 	}
 
 	.completed code {

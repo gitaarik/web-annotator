@@ -13,7 +13,7 @@
 
 	let imageElement: HTMLImageElement | undefined = $state();
 	let clickPosition: { x: number; y: number } | null = $state(null);
-	let imageRect: DOMRect | null = $state(null);
+	let layoutVersion = $state(0);
 
 	function handleClick(event: MouseEvent) {
 		if (!clickEnabled || !imageElement || !onclick) return;
@@ -29,16 +29,17 @@
 		onclick(x, y);
 	}
 
-	function updateImageRect() {
-		if (imageElement) {
-			imageRect = imageElement.getBoundingClientRect();
-		}
+	function handleImageLoad() {
+		layoutVersion++;
 	}
 
 	// Convert viewport coordinates to display coordinates for click highlight
 	let clickHighlightPosition = $derived.by(() => {
+		// Include layoutVersion in dependencies to trigger recalculation when image loads or resizes
+		void layoutVersion;
 		if (!hoverInfo || hoverInfo.type !== 'click' || !imageElement) return null;
 		const rect = imageElement.getBoundingClientRect();
+		if (rect.width === 0) return null;
 		const scaleX = rect.width / viewport.width;
 		const scaleY = rect.height / viewport.height;
 		return {
@@ -56,7 +57,7 @@
 	);
 </script>
 
-<svelte:window onresize={updateImageRect} />
+<svelte:window onresize={() => layoutVersion++} />
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
@@ -71,6 +72,7 @@
 		bind:this={imageElement}
 		{src}
 		alt="Webpage screenshot"
+		onload={handleImageLoad}
 	/>
 	{#if clickPosition && clickEnabled}
 		<div

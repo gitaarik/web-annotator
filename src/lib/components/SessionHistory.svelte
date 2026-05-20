@@ -142,34 +142,6 @@
 			>
 				<div class="action-top">
 					<span class="action-number">#{index + 1}</span>
-					<div class="action-buttons">
-						{#if onReplay}
-							<button
-								class="replay-action-btn"
-								onclick={() => onReplay(index)}
-								disabled={!canReplay(index)}
-								title={isReplayed(index) ? 'Already replayed' : canReplay(index) ? 'Replay this action' : 'Replay previous actions first'}
-							>
-								{#if replayLoading && index === replayedUpTo + 1}
-									...
-								{:else if isReplayed(index)}
-									✓
-								{:else}
-									▶
-								{/if}
-							</button>
-						{/if}
-						{#if onDelete && index === actions.length - 1}
-							<button
-								class="delete-action-btn"
-								onclick={() => onDelete(index)}
-								disabled={deleteLoading}
-								title="Delete this action"
-							>
-								×
-							</button>
-						{/if}
-					</div>
 				</div>
 				{#if action.screenshotPath}
 					<button
@@ -181,7 +153,7 @@
 						{#if action.type === 'click' && action.coordinates}
 							<div
 								class="thumbnail-click-marker"
-								style="left: {action.coordinates.x * 80 / viewport.height}px; top: {action.coordinates.y * 80 / viewport.height}px;"
+								style="left: {(action.coordinates.x / viewport.width) * 100}%; top: {(action.coordinates.y / viewport.height) * 100}%;"
 							></div>
 						{:else if action.type === 'scroll' && action.direction}
 							<div class="thumbnail-scroll-marker" class:scroll-up={action.direction === 'up'}>
@@ -216,6 +188,42 @@
 						</button>
 					{/if}
 				</div>
+				{#if onReplay || (onDelete && index === actions.length - 1)}
+					<div class="action-buttons">
+						{#if onReplay}
+							<button
+								class="replay-action-btn"
+								class:loading={replayLoading && index === replayedUpTo + 1}
+								onclick={() => onReplay(index)}
+								disabled={!canReplay(index)}
+								title={isReplayed(index) ? 'Already replayed' : canReplay(index) ? 'Replay this action' : 'Replay previous actions first'}
+							>
+								{#if replayLoading && index === replayedUpTo + 1}
+									<span class="spinner"></span>
+								{:else if isReplayed(index)}
+									✓
+								{:else}
+									▶
+								{/if}
+							</button>
+						{/if}
+						{#if onDelete && index === actions.length - 1}
+							<button
+								class="delete-action-btn"
+								class:loading={deleteLoading}
+								onclick={() => onDelete(index)}
+								disabled={deleteLoading}
+								title="Delete this action"
+							>
+								{#if deleteLoading}
+									<span class="spinner"></span>
+								{:else}
+									×
+								{/if}
+							</button>
+						{/if}
+					</div>
+				{/if}
 			</div>
 		{/each}
 
@@ -365,7 +373,9 @@
 
 	.action-buttons {
 		display: flex;
-		gap: 0.25rem;
+		gap: 0.5rem;
+		margin-top: auto;
+		padding-top: 0.5rem;
 	}
 
 	.action-type {
@@ -390,7 +400,6 @@
 		display: flex;
 		align-items: flex-start;
 		gap: 0.25rem;
-		margin-top: auto; /* Push to bottom */
 		height: calc(0.65rem * 1.3 * 2); /* Fixed 2 lines */
 	}
 
@@ -440,14 +449,18 @@
 	}
 
 	.replay-action-btn {
-		padding: 0.15rem 0.4rem;
-		font-size: 0.7rem;
+		flex: 1;
+		padding: 0.4rem 0.5rem;
+		font-size: 0.85rem;
 		background: #059669;
 		color: white;
 		border: none;
 		border-radius: 4px;
 		cursor: pointer;
-		min-width: 24px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 28px;
 	}
 
 	.replay-action-btn:hover:not(:disabled) {
@@ -460,15 +473,19 @@
 	}
 
 	.delete-action-btn {
-		padding: 0.15rem 0.4rem;
-		font-size: 0.8rem;
+		flex: 1;
+		padding: 0.4rem 0.5rem;
+		font-size: 0.95rem;
 		background: #dc2626;
 		color: white;
 		border: none;
 		border-radius: 4px;
 		cursor: pointer;
-		min-width: 24px;
 		font-weight: bold;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 28px;
 	}
 
 	.delete-action-btn:hover:not(:disabled) {
@@ -480,10 +497,25 @@
 		cursor: not-allowed;
 	}
 
+	.spinner {
+		width: 14px;
+		height: 14px;
+		border: 2px solid rgba(255, 255, 255, 0.3);
+		border-top-color: white;
+		border-radius: 50%;
+		animation: spin 0.8s linear infinite;
+	}
+
+	@keyframes spin {
+		to {
+			transform: rotate(360deg);
+		}
+	}
+
 	.screenshot-thumbnail {
 		position: relative;
 		width: 100%;
-		height: 80px;
+		aspect-ratio: 1280 / 800;
 		padding: 0;
 		border: 1px solid #ddd;
 		border-radius: 4px;
@@ -497,11 +529,10 @@
 	}
 
 	.screenshot-thumbnail img {
-		position: absolute;
-		top: 0;
-		left: 0;
-		height: 80px;
-		width: auto;
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		object-position: top left;
 	}
 
 	.thumbnail-click-marker {
