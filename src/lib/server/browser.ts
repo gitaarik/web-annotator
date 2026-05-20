@@ -1,7 +1,8 @@
-import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
+import { chromium, type Browser, type BrowserContext, type Page, type Frame } from 'playwright';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { browserConfig } from './config';
+import type { Redirect } from '$lib/types';
 
 let browser: Browser | null = null;
 let context: BrowserContext | null = null;
@@ -288,6 +289,72 @@ export interface ActionResult {
 	afterScreenshot: string;
 	beforeUrl: string;
 	afterUrl: string;
+	redirects: Redirect[];
+}
+
+/**
+ * Tracks navigation redirects during action execution.
+ * Captures screenshots for pages that actually load (not instant HTTP redirects).
+ */
+async function withRedirectTracking(
+	page: Page,
+	sessionId: string,
+	actionIndex: number,
+	beforeUrl: string,
+	action: () => Promise<void>
+): Promise<Redirect[]> {
+	const redirects: Redirect[] = [];
+	let redirectCounter = 0;
+
+	// Track each navigation
+	const onFrameNavigated = (frame: Frame) => {
+		if (frame !== page.mainFrame()) return;
+		const url = frame.url();
+		// Skip if same as before URL or last tracked redirect
+		if (url === beforeUrl) return;
+		if (redirects.length > 0 && url === redirects[redirects.length - 1].url) return;
+		// Skip about:blank and similar
+		if (url.startsWith('about:') || url.startsWith('chrome:')) return;
+		redirects.push({ url });
+	};
+
+	// Capture screenshot when page actually loads
+	const onLoad = async () => {
+		const url = page.url();
+		// Find the redirect entry for this URL and add screenshot
+		const redirect = redirects.find((r) => r.url === url && !r.screenshotPath);
+		if (redirect) {
+			try {
+				redirect.screenshotPath = await captureScreenshot(
+					page,
+					sessionId,
+					`${actionIndex}-redirect-${redirectCounter++}`
+				);
+			} catch {
+				// Screenshot failed, continue without it
+			}
+		}
+	};
+
+	page.on('framenavigated', onFrameNavigated);
+	page.on('load', onLoad);
+
+	try {
+		await action();
+		await waitForPageStable(page);
+	} finally {
+		page.off('framenavigated', onFrameNavigated);
+		page.off('load', onLoad);
+	}
+
+	// Remove the final URL from redirects if it matches afterUrl
+	// (it will be shown as the action's result, not a redirect)
+	const afterUrl = page.url();
+	if (redirects.length > 0 && redirects[redirects.length - 1].url === afterUrl) {
+		redirects.pop();
+	}
+
+	return redirects;
 }
 
 export async function executeClick(
@@ -300,11 +367,14 @@ export async function executeClick(
 	const p = getPage(tabId);
 	const beforeScreenshot = await captureScreenshot(p, sessionId, `${actionIndex}-before`);
 	const beforeUrl = p.url();
-	await p.mouse.click(x, y);
-	await waitForPageStable(p);
+
+	const redirects = await withRedirectTracking(p, sessionId, actionIndex, beforeUrl, async () => {
+		await p.mouse.click(x, y);
+	});
+
 	const afterScreenshot = await captureScreenshot(p, sessionId, `${actionIndex}-after`);
 	const afterUrl = p.url();
-	return { beforeScreenshot, afterScreenshot, beforeUrl, afterUrl };
+	return { beforeScreenshot, afterScreenshot, beforeUrl, afterUrl, redirects };
 }
 
 export async function executeScroll(
@@ -317,11 +387,14 @@ export async function executeScroll(
 	const beforeScreenshot = await captureScreenshot(p, sessionId, `${actionIndex}-before`);
 	const beforeUrl = p.url();
 	const scrollY = direction === 'down' ? browserConfig.scrollAmount : -browserConfig.scrollAmount;
-	await p.mouse.wheel(0, scrollY);
-	await waitForPageStable(p);
+
+	const redirects = await withRedirectTracking(p, sessionId, actionIndex, beforeUrl, async () => {
+		await p.mouse.wheel(0, scrollY);
+	});
+
 	const afterScreenshot = await captureScreenshot(p, sessionId, `${actionIndex}-after`);
 	const afterUrl = p.url();
-	return { beforeScreenshot, afterScreenshot, beforeUrl, afterUrl };
+	return { beforeScreenshot, afterScreenshot, beforeUrl, afterUrl, redirects };
 }
 
 export async function executeType(
@@ -333,11 +406,14 @@ export async function executeType(
 	const p = getPage(tabId);
 	const beforeScreenshot = await captureScreenshot(p, sessionId, `${actionIndex}-before`);
 	const beforeUrl = p.url();
-	await p.keyboard.type(text, { delay: browserConfig.typingDelay });
-	await waitForPageStable(p);
+
+	const redirects = await withRedirectTracking(p, sessionId, actionIndex, beforeUrl, async () => {
+		await p.keyboard.type(text, { delay: browserConfig.typingDelay });
+	});
+
 	const afterScreenshot = await captureScreenshot(p, sessionId, `${actionIndex}-after`);
 	const afterUrl = p.url();
-	return { beforeScreenshot, afterScreenshot, beforeUrl, afterUrl };
+	return { beforeScreenshot, afterScreenshot, beforeUrl, afterUrl, redirects };
 }
 
 export async function executeWait(
@@ -348,10 +424,14 @@ export async function executeWait(
 	const p = getPage(tabId);
 	const beforeScreenshot = await captureScreenshot(p, sessionId, `${actionIndex}-before`);
 	const beforeUrl = p.url();
-	await waitForPageStable(p);
+
+	const redirects = await withRedirectTracking(p, sessionId, actionIndex, beforeUrl, async () => {
+		// Wait action: no immediate action, just wait for stability
+	});
+
 	const afterScreenshot = await captureScreenshot(p, sessionId, `${actionIndex}-after`);
 	const afterUrl = p.url();
-	return { beforeScreenshot, afterScreenshot, beforeUrl, afterUrl };
+	return { beforeScreenshot, afterScreenshot, beforeUrl, afterUrl, redirects };
 }
 
 export async function replaySingleAction(
@@ -371,24 +451,31 @@ export async function replaySingleAction(
 	const beforeScreenshot = await captureScreenshot(p, sessionId, `replay-${actionIndex}-before`);
 	const beforeUrl = p.url();
 
-	// Execute the action
-	if (action.type === 'click' && action.coordinates) {
-		await p.mouse.click(action.coordinates.x, action.coordinates.y);
-	} else if (action.type === 'scroll' && action.direction) {
-		const scrollY = action.direction === 'down' ? browserConfig.scrollAmount : -browserConfig.scrollAmount;
-		await p.mouse.wheel(0, scrollY);
-	} else if (action.type === 'type' && action.text) {
-		await p.keyboard.type(action.text, { delay: browserConfig.typingDelay });
-	}
-	// For 'wait' and 'stop' actions, just wait for page stability
-
-	await waitForPageStable(p);
+	// Execute the action with redirect tracking
+	const redirects = await withRedirectTracking(
+		p,
+		sessionId,
+		actionIndex,
+		beforeUrl,
+		async () => {
+			if (action.type === 'click' && action.coordinates) {
+				await p.mouse.click(action.coordinates.x, action.coordinates.y);
+			} else if (action.type === 'scroll' && action.direction) {
+				const scrollY =
+					action.direction === 'down' ? browserConfig.scrollAmount : -browserConfig.scrollAmount;
+				await p.mouse.wheel(0, scrollY);
+			} else if (action.type === 'type' && action.text) {
+				await p.keyboard.type(action.text, { delay: browserConfig.typingDelay });
+			}
+			// For 'wait' and 'stop' actions, just wait for page stability
+		}
+	);
 
 	// Capture AFTER state
 	const afterScreenshot = await captureScreenshot(p, sessionId, `replay-${actionIndex}-after`);
 	const afterUrl = p.url();
 
-	return { beforeScreenshot, afterScreenshot, beforeUrl, afterUrl };
+	return { beforeScreenshot, afterScreenshot, beforeUrl, afterUrl, redirects };
 }
 
 export async function refreshScreenshot(tabId: string, sessionId: string): Promise<string> {

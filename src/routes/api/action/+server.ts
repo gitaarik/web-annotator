@@ -140,7 +140,8 @@ export const POST: RequestHandler = async ({ request }) => {
 			...(actionType === 'type' && { text }),
 			...(actionType === 'newTab' && { targetUrl, targetTabId: newTabId }),
 			...(actionType === 'switchTab' && { targetTabId }),
-			...(actionType === 'closeTab' && { targetTabId })
+			...(actionType === 'closeTab' && { targetTabId }),
+			...(actionResult?.redirects?.length && { redirects: actionResult.redirects })
 		};
 
 		const updatedSession = await addAction(sessionId, action);

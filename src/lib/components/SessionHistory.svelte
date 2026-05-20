@@ -1,10 +1,11 @@
 <script lang="ts">
-	import { type Action, type HoverInfo, formatAction } from '$lib/types';
+	import { type Action, type HoverInfo, type Redirect, formatAction } from '$lib/types';
 	import ScreenshotViewer from './ScreenshotViewer.svelte';
 
 	let copiedUrl: string | null = $state(null);
 	let expandedAction: Action | null = $state(null);
 	let expandedScreenshotSrc: string | null = $state(null);
+	let expandedRedirects: { actionIndex: number; redirects: Redirect[] } | null = $state(null);
 
 	function formatUrlParts(url: string): { line1: string; line2: string | null } {
 		const singleLineMax = 40; // URLs up to this length stay on one line (CSS handles overflow)
@@ -141,7 +142,7 @@
 				onmouseleave={handleMouseLeave}
 			>
 				<div class="action-top">
-					<span class="action-number">#{index + 1}</span>
+					<span class="action-number">#{index}</span>
 				</div>
 				{#if action.screenshotPath}
 					<button
@@ -149,7 +150,7 @@
 						onclick={() => expandedAction = action}
 						title="Click to enlarge"
 					>
-						<img src={action.screenshotPath} alt="Screenshot for action {index + 1}" />
+						<img src={action.screenshotPath} alt="Screenshot for action {index}" />
 						{#if action.type === 'click' && action.coordinates}
 							<div
 								class="thumbnail-click-marker"
@@ -188,6 +189,15 @@
 						</button>
 					{/if}
 				</div>
+				{#if action.redirects && action.redirects.length > 0}
+					<button
+						class="redirects-badge"
+						onclick={() => expandedRedirects = { actionIndex: index, redirects: action.redirects! }}
+						title="View redirect chain"
+					>
+						{action.redirects.length} redirect{action.redirects.length > 1 ? 's' : ''}
+					</button>
+				{/if}
 				{#if onReplay || (onDelete && index === actions.length - 1)}
 					<div class="action-buttons">
 						{#if onReplay}
@@ -272,6 +282,7 @@
 	if (e.key === 'Escape') {
 		if (expandedAction) expandedAction = null;
 		else if (expandedScreenshotSrc) expandedScreenshotSrc = null;
+		else if (expandedRedirects) expandedRedirects = null;
 	}
 }} />
 
@@ -298,6 +309,54 @@
 				src={expandedScreenshotSrc}
 				{viewport}
 			/>
+		</div>
+	</div>
+{/if}
+
+{#if expandedRedirects}
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div class="redirects-modal" onclick={() => expandedRedirects = null}>
+		<!-- svelte-ignore a11y_click_events_have_key_events -->
+		<div class="redirects-modal-content" onclick={(e) => e.stopPropagation()}>
+			<button class="modal-close" onclick={() => expandedRedirects = null}>×</button>
+			<h3 class="redirects-modal-title">
+				Redirects from Action #{expandedRedirects.actionIndex}
+			</h3>
+			<div class="redirects-list">
+				{#each expandedRedirects.redirects as redirect, i}
+					<div class="redirect-item">
+						<div class="redirect-number">{i + 1}</div>
+						<div class="redirect-content">
+							{#if redirect.screenshotPath}
+								<button
+									class="redirect-screenshot"
+									onclick={() => {
+										expandedScreenshotSrc = redirect.screenshotPath!;
+										expandedRedirects = null;
+									}}
+									title="Click to enlarge"
+								>
+									<img src={redirect.screenshotPath} alt="Redirect {i + 1}" />
+								</button>
+							{:else}
+								<div class="redirect-no-screenshot">
+									<span>No screenshot</span>
+									<span class="redirect-no-screenshot-hint">(instant redirect)</span>
+								</div>
+							{/if}
+							<a
+								class="redirect-url"
+								href={redirect.url}
+								target="_blank"
+								rel="noopener noreferrer"
+								title={redirect.url}
+							>
+								{redirect.url}
+							</a>
+						</div>
+					</div>
+				{/each}
+			</div>
 		</div>
 	</div>
 {/if}
@@ -627,5 +686,142 @@
 
 	.modal-close:hover {
 		background: rgba(255, 255, 255, 0.3);
+	}
+
+	/* Redirects badge */
+	.redirects-badge {
+		padding: 0.2rem 0.4rem;
+		font-size: 0.65rem;
+		background: #fef3c7;
+		color: #92400e;
+		border: 1px solid #f59e0b;
+		border-radius: 4px;
+		cursor: pointer;
+		transition: background 0.15s;
+	}
+
+	.redirects-badge:hover {
+		background: #fde68a;
+	}
+
+	/* Redirects modal */
+	.redirects-modal {
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.75);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 1000;
+		padding: 2rem;
+		cursor: pointer;
+	}
+
+	.redirects-modal-content {
+		position: relative;
+		background: white;
+		border-radius: 8px;
+		padding: 1.5rem;
+		max-width: 600px;
+		max-height: 80vh;
+		overflow-y: auto;
+		cursor: default;
+	}
+
+	.redirects-modal-content .modal-close {
+		background: #e5e5e5;
+		color: #333;
+	}
+
+	.redirects-modal-content .modal-close:hover {
+		background: #d5d5d5;
+	}
+
+	.redirects-modal-title {
+		margin: 0 0 1rem;
+		font-size: 1rem;
+		color: #333;
+	}
+
+	.redirects-list {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+
+	.redirect-item {
+		display: flex;
+		gap: 0.75rem;
+		padding: 0.75rem;
+		background: #f9f9f9;
+		border-radius: 6px;
+		border-left: 3px solid #f59e0b;
+	}
+
+	.redirect-number {
+		font-weight: bold;
+		color: #92400e;
+		font-size: 0.85rem;
+		min-width: 1.5rem;
+	}
+
+	.redirect-content {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.redirect-screenshot {
+		width: 200px;
+		aspect-ratio: 1280 / 800;
+		padding: 0;
+		border: 1px solid #ddd;
+		border-radius: 4px;
+		overflow: hidden;
+		cursor: pointer;
+		background: #f5f5f5;
+	}
+
+	.redirect-screenshot:hover {
+		border-color: #0066cc;
+	}
+
+	.redirect-screenshot img {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		object-position: top left;
+	}
+
+	.redirect-no-screenshot {
+		width: 200px;
+		aspect-ratio: 1280 / 800;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		background: #f0f0f0;
+		border: 1px dashed #ccc;
+		border-radius: 4px;
+		color: #888;
+		font-size: 0.75rem;
+	}
+
+	.redirect-no-screenshot-hint {
+		font-size: 0.65rem;
+		color: #aaa;
+	}
+
+	.redirect-url {
+		font-size: 0.75rem;
+		color: #0066cc;
+		text-decoration: none;
+		word-break: break-all;
+	}
+
+	.redirect-url:hover {
+		text-decoration: underline;
 	}
 </style>

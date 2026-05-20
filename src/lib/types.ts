@@ -6,6 +6,11 @@ export interface Tab {
 	closedAt?: string;
 }
 
+export interface Redirect {
+	url: string;
+	screenshotPath?: string; // Only captured if page actually loaded
+}
+
 export interface AnnotationSession {
 	id: string;
 	url: string;
@@ -31,6 +36,7 @@ export interface Action {
 	targetUrl?: string; // for newTab
 	screenshotPath: string;
 	url: string;
+	redirects?: Redirect[]; // Chain of URLs navigated through after action
 }
 
 export interface ClickAction extends Action {

@@ -273,7 +273,7 @@
 		if (!session.id || index < 0 || index >= actions.length) return;
 
 		const action = actions[index];
-		if (!confirm(`Delete action #${index + 1}: ${formatAction(action)}?`)) {
+		if (!confirm(`Delete action #${index}: ${formatAction(action)}?`)) {
 			return;
 		}
 
@@ -416,6 +416,13 @@
 		if (nextActionIndex !== null) {
 			const action = actions[nextActionIndex];
 			editingActionIndex = nextActionIndex;
+
+			// Reset all action-specific fields first
+			clickCoordinates = null;
+			typeText = '';
+			scrollDirection = 'down';
+
+			// Then populate based on action type
 			const supportedTypes = ['click', 'scroll', 'type', 'wait', 'stop'] as const;
 			if (supportedTypes.includes(action.type as typeof supportedTypes[number])) {
 				selectedAction = action.type as typeof supportedTypes[number];
