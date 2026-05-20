@@ -44,6 +44,7 @@
 	let replayedUpTo = $state(-1);
 	let hoverInfo = $state<HoverInfo>(null);
 	let editingActionIndex = $state<number | null>(null);
+	let manualEditMode = $state(false);
 
 	onMount(() => {
 		if (!isCompleted) {
@@ -347,7 +348,17 @@
 			);
 
 			actions = response.session.actions;
-			await handleReplayAction(editingActionIndex);
+			const indexToReplay = editingActionIndex;
+
+			// Reset manual edit mode before replaying
+			manualEditMode = false;
+			editingActionIndex = null;
+			selectedAction = null;
+			explanation = '';
+			clickCoordinates = null;
+			typeText = '';
+
+			await handleReplayAction(indexToReplay);
 		} catch (e) {
 			error = getErrorMessage(e);
 		} finally {
@@ -359,6 +370,43 @@
 		if (selectedAction === 'click' || selectedAction === 'hover') {
 			clickCoordinates = { x, y };
 		}
+	}
+
+	function handleSelectForEdit(index: number) {
+		const action = actions[index];
+		manualEditMode = true;
+		editingActionIndex = index;
+
+		// Reset all action-specific fields first
+		clickCoordinates = null;
+		typeText = '';
+		scrollDirection = 'down';
+
+		// Populate based on action type
+		const supportedTypes = ['click', 'hover', 'scroll', 'type', 'wait', 'stop'] as const;
+		if (supportedTypes.includes(action.type as (typeof supportedTypes)[number])) {
+			selectedAction = action.type as (typeof supportedTypes)[number];
+		} else {
+			selectedAction = null;
+		}
+		explanation = action.explanation;
+
+		if ((action.type === 'click' || action.type === 'hover') && action.coordinates) {
+			clickCoordinates = action.coordinates;
+		} else if (action.type === 'scroll' && action.direction) {
+			scrollDirection = action.direction;
+		} else if (action.type === 'type' && action.text) {
+			typeText = action.text;
+		}
+	}
+
+	function cancelEdit() {
+		manualEditMode = false;
+		editingActionIndex = null;
+		selectedAction = null;
+		explanation = '';
+		clickCoordinates = null;
+		typeText = '';
 	}
 
 	async function executeAction() {
@@ -425,15 +473,19 @@
 		goto('/');
 	}
 
-	// Check if we're in edit mode (replaying a session with upcoming actions)
+	// Check if we're in replay edit mode (replaying a session with upcoming actions)
 	let nextActionIndex = $derived(
 		actions.length > 0 && replayedUpTo < actions.length - 1 ? replayedUpTo + 1 : null
 	);
 
-	let isEditMode = $derived(nextActionIndex !== null);
+	// Edit mode is active when either replaying or manually editing
+	let isEditMode = $derived(nextActionIndex !== null || manualEditMode);
 
-	// Auto-populate form with next action when in edit mode
+	// Auto-populate form with next action when in replay edit mode (not manual edit)
 	$effect(() => {
+		// Skip if in manual edit mode - form is already populated
+		if (manualEditMode) return;
+
 		if (nextActionIndex !== null) {
 			const action = actions[nextActionIndex];
 			editingActionIndex = nextActionIndex;
@@ -445,8 +497,8 @@
 
 			// Then populate based on action type
 			const supportedTypes = ['click', 'hover', 'scroll', 'type', 'wait', 'stop'] as const;
-			if (supportedTypes.includes(action.type as typeof supportedTypes[number])) {
-				selectedAction = action.type as typeof supportedTypes[number];
+			if (supportedTypes.includes(action.type as (typeof supportedTypes)[number])) {
+				selectedAction = action.type as (typeof supportedTypes)[number];
 			} else {
 				selectedAction = null;
 			}
@@ -478,6 +530,13 @@
 	);
 
 	let isLoading = $derived(actionLoading || tabLoading);
+
+	// When editing, show the action's screenshot; otherwise show current browser state
+	let displayScreenshot = $derived(
+		manualEditMode && editingActionIndex !== null
+			? actions[editingActionIndex]?.screenshotPath ?? screenshotPath
+			: screenshotPath
+	);
 </script>
 
 <main>
@@ -543,6 +602,7 @@
 							{deleteLoading}
 							onHoverAction={(info) => (hoverInfo = info)}
 							editingIndex={editingActionIndex}
+							onSelectForEdit={handleSelectForEdit}
 						/>
 						{#snippet failed()}
 							<div class="error">Failed to render session history. Please refresh the page.</div>
@@ -560,11 +620,16 @@
 								<span>Initializing browser...</span>
 							</div>
 						</div>
-					{:else if screenshotPath}
-						<div class="screenshot-wrapper">
+					{:else if displayScreenshot}
+						<div class="screenshot-wrapper" class:editing-mode={manualEditMode}>
+							{#if manualEditMode && editingActionIndex !== null}
+								<div class="editing-banner">
+									Editing Action #{editingActionIndex}
+								</div>
+							{/if}
 							<svelte:boundary onerror={(e) => error = `Screenshot error: ${getErrorMessage(e)}`}>
 								<ScreenshotViewer
-									src={screenshotPath}
+									src={displayScreenshot}
 									{viewport}
 									onclick={handleClick}
 									clickEnabled={selectedAction === 'click' || selectedAction === 'hover'}
@@ -590,14 +655,16 @@
 								<span class="coordinates">Selected: ({clickCoordinates.x}, {clickCoordinates.y})</span>
 							{/if}
 							<div class="toolbar-buttons">
-								<button
-									class="toolbar-btn"
-									onclick={handleRefreshScreenshot}
-									disabled={refreshLoading}
-									title="Refresh screenshot"
-								>
-									{refreshLoading ? '...' : '↻'} Refresh
-								</button>
+								{#if !manualEditMode}
+									<button
+										class="toolbar-btn"
+										onclick={handleRefreshScreenshot}
+										disabled={refreshLoading}
+										title="Refresh screenshot"
+									>
+										{refreshLoading ? '...' : '↻'} Refresh
+									</button>
+								{/if}
 								<button
 									class="toolbar-btn"
 									onclick={handleExportSession}
@@ -630,6 +697,8 @@
 							}}
 							onscrolldirectionchange={(d) => (scrollDirection = d)}
 							ontextchange={(t) => (typeText = t)}
+							isEditing={manualEditMode}
+							onCancelEdit={cancelEdit}
 						/>
 
 						<ExplanationInput
@@ -768,6 +837,26 @@
 	.screenshot-wrapper {
 		position: relative;
 		display: inline-block;
+	}
+
+	.screenshot-wrapper.editing-mode {
+		outline: 3px solid var(--color-purple);
+		border-radius: 6px;
+	}
+
+	.editing-banner {
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
+		background: var(--color-purple);
+		color: white;
+		padding: var(--space-xs) var(--space-sm);
+		font-size: 0.85rem;
+		font-weight: 600;
+		text-align: center;
+		z-index: 10;
+		border-radius: 4px 4px 0 0;
 	}
 
 	.screenshot-loading-overlay {

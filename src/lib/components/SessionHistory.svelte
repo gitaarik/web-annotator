@@ -28,6 +28,7 @@
 		deleteLoading?: boolean;
 		onHoverAction?: (info: HoverInfo) => void;
 		editingIndex?: number | null;
+		onSelectForEdit?: (index: number) => void;
 	}
 
 	let {
@@ -41,7 +42,8 @@
 		onDelete,
 		deleteLoading = false,
 		onHoverAction,
-		editingIndex = null
+		editingIndex = null,
+		onSelectForEdit
 	}: Props = $props();
 
 	function canReplay(index: number): boolean {
@@ -147,7 +149,7 @@
 						{/if}
 					</button>
 				{/if}
-				{#if onReplay || (onDelete && index === actions.length - 1)}
+				{#if onReplay || (onDelete && index === actions.length - 1) || onSelectForEdit}
 					<div class="action-buttons">
 						{#if onReplay}
 							<button
@@ -164,6 +166,15 @@
 								{:else}
 									▶
 								{/if}
+							</button>
+						{/if}
+						{#if onSelectForEdit && editingIndex !== index}
+							<button
+								class="edit-action-btn"
+								onclick={() => onSelectForEdit(index)}
+								title="Edit this action"
+							>
+								✎
 							</button>
 						{/if}
 						{#if onDelete && index === actions.length - 1}
@@ -511,6 +522,25 @@
 	.play-action-btn:disabled {
 		background: #ccc;
 		cursor: not-allowed;
+	}
+
+	.edit-action-btn {
+		flex: 1;
+		padding: 0.4rem 0.5rem;
+		font-size: 0.85rem;
+		background: #8b5cf6;
+		color: white;
+		border: none;
+		border-radius: 4px;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 28px;
+	}
+
+	.edit-action-btn:hover {
+		background: #7c3aed;
 	}
 
 	.delete-action-btn {

@@ -6,13 +6,22 @@
 		onactionchange: (action: 'click' | 'hover' | 'scroll' | 'type' | 'wait' | 'stop') => void;
 		onscrolldirectionchange: (direction: 'up' | 'down') => void;
 		ontextchange: (text: string) => void;
+		isEditing?: boolean;
+		onCancelEdit?: () => void;
 	}
 
-	let { selectedAction, scrollDirection, typeText, onactionchange, onscrolldirectionchange, ontextchange }: Props = $props();
+	let { selectedAction, scrollDirection, typeText, onactionchange, onscrolldirectionchange, ontextchange, isEditing = false, onCancelEdit }: Props = $props();
 </script>
 
 <div class="action-panel">
-	<h3>Select Action</h3>
+	<div class="panel-header">
+		<h3>Select Action</h3>
+		{#if isEditing && onCancelEdit}
+			<button class="cancel-edit-btn" onclick={onCancelEdit}>
+				Cancel Edit
+			</button>
+		{/if}
+	</div>
 
 	<div class="action-options">
 		<label class:selected={selectedAction === 'click'}>
@@ -137,9 +146,33 @@
 		border-radius: 8px;
 	}
 
+	.panel-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 1rem;
+	}
+
 	h3 {
-		margin: 0 0 1rem 0;
+		margin: 0;
 		font-size: 1rem;
+	}
+
+	.cancel-edit-btn {
+		padding: 0.35rem 0.75rem;
+		font-size: 0.8rem;
+		background: #e5e5e5;
+		color: #666;
+		border: 1px solid #ccc;
+		border-radius: 4px;
+		cursor: pointer;
+		transition: all 0.15s;
+	}
+
+	.cancel-edit-btn:hover {
+		background: #d5d5d5;
+		color: #333;
+		border-color: #999;
 	}
 
 	.action-options {
