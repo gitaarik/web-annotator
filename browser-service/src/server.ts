@@ -243,6 +243,31 @@ app.post('/sessions/:id/click', async (req, res) => {
 	}
 });
 
+app.post('/sessions/:id/move', async (req, res) => {
+	try {
+		const { x, y } = req.body;
+
+		if (typeof x !== 'number' || typeof y !== 'number') {
+			res.status(400).json({ error: 'x and y coordinates required' });
+			return;
+		}
+
+		const client = await getCdpClient(req.params.id);
+		if (!client) {
+			res.status(404).json({ error: 'Session not found' });
+			return;
+		}
+
+		await client.cdpMove(x, y);
+		res.json({ success: true });
+	} catch (err) {
+		res.status(500).json({
+			success: false,
+			error: err instanceof Error ? err.message : String(err)
+		});
+	}
+});
+
 app.post('/sessions/:id/type', async (req, res) => {
 	try {
 		const { text, charDelayMs = 50 } = req.body;

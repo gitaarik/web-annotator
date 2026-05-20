@@ -28,6 +28,7 @@ class BrowserState {
 	private tabs: Map<string, TabInfo> = new Map();
 	private activeTabId: string | null = null;
 	private viewport: { width: number; height: number } = browserConfig.viewport;
+	private mousePosition: { x: number; y: number } | null = null;
 
 	generateTabId(): string {
 		return `tab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -73,10 +74,19 @@ class BrowserState {
 		this.viewport = viewport;
 	}
 
+	getMousePosition(): { x: number; y: number } | null {
+		return this.mousePosition;
+	}
+
+	setMousePosition(x: number, y: number): void {
+		this.mousePosition = { x, y };
+	}
+
 	clear(): void {
 		this.tabs.clear();
 		this.activeTabId = null;
 		this.activeSessionId = null;
+		this.mousePosition = null;
 	}
 
 	*tabEntries(): IterableIterator<[string, TabInfo]> {
@@ -170,19 +180,15 @@ export async function createTab(
 		{ url }
 	);
 
-	// Navigate if URL provided (skip if Chrome was just launched with the URL)
+	// Always navigate to the URL if provided
 	let currentUrl = url || 'about:blank';
-	if (url && !launchResult.isNew) {
+	if (url) {
 		const navResult = await browserApi<{ success: boolean; url: string }>(
 			'POST',
 			`/sessions/${sessionId}/navigate`,
 			{ url }
 		);
 		currentUrl = navResult.url;
-	} else if (url && launchResult.isNew) {
-		// Chrome was launched with URL, get actual URL (may have redirected)
-		const urlResult = await browserApi<{ url: string }>('GET', `/sessions/${sessionId}/url`);
-		currentUrl = urlResult.url;
 	}
 
 	// Track locally
@@ -458,6 +464,7 @@ export async function executeHover(
 		{ tabId, sessionId, actionIndex, trackRedirects: false, updateLocalUrl: false },
 		async () => {
 			await browserApi<{ success: boolean }>('POST', `/sessions/${browserSessionId}/move`, { x, y });
+			state.setMousePosition(x, y);
 			await sleep(300); // Wait for hover effects
 		}
 	);
@@ -471,9 +478,13 @@ export async function executeScroll(
 ): Promise<ActionResult> {
 	const browserSessionId = getSessionId(tabId);
 	const deltaY = direction === 'down' ? browserConfig.scrollAmount : -browserConfig.scrollAmount;
+	const mousePos = state.getMousePosition();
 
 	return executeActionWithTracking({ tabId, sessionId, actionIndex }, async () => {
-		await browserApi<{ success: boolean }>('POST', `/sessions/${browserSessionId}/scroll`, { deltaY });
+		await browserApi<{ success: boolean }>('POST', `/sessions/${browserSessionId}/scroll`, {
+			deltaY,
+			...(mousePos && { x: mousePos.x, y: mousePos.y })
+		});
 	});
 }
 
@@ -533,12 +544,15 @@ export async function replaySingleAction(
 					x: action.coordinates.x,
 					y: action.coordinates.y
 				});
+				state.setMousePosition(action.coordinates.x, action.coordinates.y);
 				await sleep(300); // Wait for hover effects
 			} else if (action.type === 'scroll' && action.direction) {
 				const deltaY =
 					action.direction === 'down' ? browserConfig.scrollAmount : -browserConfig.scrollAmount;
+				const mousePos = state.getMousePosition();
 				await browserApi<{ success: boolean }>('POST', `/sessions/${browserSessionId}/scroll`, {
-					deltaY
+					deltaY,
+					...(mousePos && { x: mousePos.x, y: mousePos.y })
 				});
 			} else if (action.type === 'type' && action.text) {
 				await browserApi<{ success: boolean }>('POST', `/sessions/${browserSessionId}/type`, {

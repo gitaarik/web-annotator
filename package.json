@@ -10,6 +10,7 @@
 		"dev": "vite dev",
 		"dev:browser": "npm start --workspace=browser-service",
 		"dev:all": "npm run dev:browser & sleep 2 && npm run dev",
+		"clear-profile": "./clear-chrome-profile.sh",
 		"build": "vite build",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
