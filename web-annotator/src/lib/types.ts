@@ -1,0 +1,32 @@
+export interface AnnotationSession {
+	id: string;
+	url: string;
+	prompt: string;
+	createdAt: string;
+	actions: Action[];
+	initialScreenshot: string;
+	finalAnswer?: string;
+}
+
+export interface Action {
+	type: 'click' | 'scroll' | 'stop';
+	explanation: string;
+	timestamp: string;
+	coordinates?: { x: number; y: number };
+	direction?: 'up' | 'down';
+	screenshotPath: string;
+}
+
+export interface ClickAction extends Action {
+	type: 'click';
+	coordinates: { x: number; y: number };
+}
+
+export interface ScrollAction extends Action {
+	type: 'scroll';
+	direction: 'up' | 'down';
+}
+
+export interface StopAction extends Action {
+	type: 'stop';
+}
