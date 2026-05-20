@@ -35,6 +35,21 @@ export async function createSession(
 	return session;
 }
 
+export async function importSession(session: AnnotationSession): Promise<AnnotationSession> {
+	await ensureDataDir();
+
+	// Generate new ID to avoid conflicts
+	const newId = crypto.randomUUID();
+	const importedSession: AnnotationSession = {
+		...session,
+		id: newId,
+		createdAt: new Date().toISOString()
+	};
+
+	await fs.writeFile(getSessionPath(newId), JSON.stringify(importedSession, null, 2));
+	return importedSession;
+}
+
 export async function getSession(sessionId: string): Promise<AnnotationSession | null> {
 	try {
 		const data = await fs.readFile(getSessionPath(sessionId), 'utf-8');

@@ -173,6 +173,42 @@
 		}
 	}
 
+	async function handleImportSession(event: Event) {
+		const input = event.target as HTMLInputElement;
+		const file = input.files?.[0];
+		if (!file) return;
+
+		loading = true;
+		error = null;
+
+		try {
+			const text = await file.text();
+			const sessionData = JSON.parse(text);
+
+			const response = await fetch('/api/sessions', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(sessionData)
+			});
+
+			const data = await response.json();
+
+			if (!response.ok) {
+				throw new Error(data.error || 'Failed to import session');
+			}
+
+			// Add to saved sessions list and refresh
+			savedSessions = [data.summary, ...savedSessions];
+
+			// Reset file input
+			input.value = '';
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'An error occurred';
+		} finally {
+			loading = false;
+		}
+	}
+
 	async function handleRefreshScreenshot() {
 		if (!sessionId) return;
 
@@ -494,9 +530,16 @@
 			</button>
 		</section>
 
-		{#if !loadingSessions && savedSessions.length > 0}
+		{#if !loadingSessions}
 			<section class="saved-sessions">
-				<h2>Resume Saved Session</h2>
+				<div class="sessions-header">
+					<h2>Saved Sessions</h2>
+					<label class="import-btn">
+						↑ Import
+						<input type="file" accept=".json" onchange={handleImportSession} hidden disabled={loading} />
+					</label>
+				</div>
+				{#if savedSessions.length > 0}
 				<div class="sessions-list">
 					{#each savedSessions.filter(s => !s.isCompleted) as session}
 						<div class="session-row">
@@ -530,6 +573,7 @@
 						</div>
 					{/each}
 				</div>
+				{/if}
 			</section>
 		{/if}
 	{:else if isCompleted}
@@ -731,6 +775,36 @@
 	.saved-sessions {
 		max-width: 600px;
 		margin-top: 2rem;
+	}
+
+	.sessions-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 1rem;
+	}
+
+	.sessions-header h2 {
+		margin: 0;
+	}
+
+	.import-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		padding: 0.5rem 1rem;
+		font-size: 0.9rem;
+		background: #f3f4f6;
+		color: #374151;
+		border: 1px solid #d1d5db;
+		border-radius: 6px;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.import-btn:hover {
+		background: #e5e7eb;
+		border-color: #9ca3af;
 	}
 
 	.sessions-list {
