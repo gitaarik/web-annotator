@@ -37,10 +37,23 @@ export async function apiRequest<T>(
 	};
 
 	const response = await fetch(url, fetchOptions);
-	const data = await response.json();
+
+	let data: unknown;
+	const contentType = response.headers.get('content-type');
+	if (contentType?.includes('application/json')) {
+		data = await response.json();
+	} else {
+		// Server returned non-JSON (likely an error page)
+		await response.text(); // consume body
+		throw new ApiError(
+			`Server error: ${response.status} ${response.statusText}`,
+			response.status
+		);
+	}
 
 	if (!response.ok) {
-		throw new ApiError(data.error || `Request failed with status ${response.status}`, response.status);
+		const errorData = data as { error?: string };
+		throw new ApiError(errorData.error || `Request failed with status ${response.status}`, response.status);
 	}
 
 	return data as T;

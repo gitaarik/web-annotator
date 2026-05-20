@@ -45,6 +45,69 @@
 	let hoverInfo = $state<HoverInfo>(null);
 	let editingActionIndex = $state<number | null>(null);
 	let manualEditMode = $state(false);
+	let pollingInterval = $state<ReturnType<typeof setInterval> | null>(null);
+
+	// Visual loading state (can be hidden while action still processing)
+	let showLoadingIndicator = $state(false);
+	let hideIndicatorTimeout = $state<ReturnType<typeof setTimeout> | null>(null);
+	let lateUpdate = $state(false);
+
+	// Action queue for when user starts next action before previous completes
+	let pendingAction = $state<(() => Promise<void>) | null>(null);
+	let queuedReplayIndex = $state<number | null>(null);
+
+	async function pollScreenshot() {
+		if (!session.id || !tabId) return;
+		try {
+			const response = await fetch(`/api/sessions/${session.id}/refresh`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ tabId })
+			});
+			const data = await response.json();
+			if (data.screenshotPath) {
+				const previousPath = screenshotPath;
+				screenshotPath = data.screenshotPath;
+
+				// If indicator was hidden and screenshot changed, show late update flash
+				if (!showLoadingIndicator && actionLoading && previousPath !== data.screenshotPath) {
+					lateUpdate = true;
+					setTimeout(() => (lateUpdate = false), 800);
+				}
+			}
+		} catch {
+			// Ignore polling errors
+		}
+	}
+
+	function startScreenshotPolling() {
+		if (pollingInterval) return;
+		showLoadingIndicator = true;
+
+		// Hide indicator after 1 second (polling continues in background)
+		// But keep showing if there's a queued action
+		hideIndicatorTimeout = setTimeout(() => {
+			if (pendingAction === null) {
+				showLoadingIndicator = false;
+			}
+		}, 1000);
+
+		// Poll immediately, then every 300ms
+		pollScreenshot();
+		pollingInterval = setInterval(pollScreenshot, 300);
+	}
+
+	function stopScreenshotPolling() {
+		if (pollingInterval) {
+			clearInterval(pollingInterval);
+			pollingInterval = null;
+		}
+		if (hideIndicatorTimeout) {
+			clearTimeout(hideIndicatorTimeout);
+			hideIndicatorTimeout = null;
+		}
+		showLoadingIndicator = false;
+	}
 
 	onMount(() => {
 		if (!isCompleted) {
@@ -68,7 +131,10 @@
 			}
 		}, 2000);
 
-		return () => clearInterval(pollInterval);
+		return () => {
+			clearInterval(pollInterval);
+			stopScreenshotPolling();
+		};
 	});
 
 	async function initializeBrowser() {
@@ -99,8 +165,28 @@
 	async function handleReplayAction(index: number) {
 		if (!session.id || !tabId || index < 0 || index >= actions.length) return;
 
+		// If replay already running, queue this one
+		if (replayLoading) {
+			queuedReplayIndex = index;
+			pendingAction = () => runReplayAction(index);
+			// Show loading indicator while queued
+			showLoadingIndicator = true;
+			return;
+		}
+
+		await runReplayAction(index);
+	}
+
+	async function runReplayAction(index: number) {
 		replayLoading = true;
 		error = null;
+		queuedReplayIndex = null; // Clear queued state as we're now running
+
+		// Optimistically update replayedUpTo so next button is enabled for queuing
+		const previousReplayedUpTo = replayedUpTo;
+		replayedUpTo = index;
+
+		startScreenshotPolling();
 
 		try {
 			const response = await apiRequest<{
@@ -117,16 +203,25 @@
 			screenshotPath = response.screenshotPath;
 			currentUrl = response.currentUrl ?? null;
 			viewport = response.viewport;
-			replayedUpTo = index;
 			tabId = response.tabId;
 
 			if (response.session) {
 				actions = response.session.actions;
 			}
 		} catch (e) {
+			// Revert on failure
+			replayedUpTo = previousReplayedUpTo;
 			error = getErrorMessage(e);
 		} finally {
+			stopScreenshotPolling();
 			replayLoading = false;
+
+			// Run pending action if queued
+			if (pendingAction) {
+				const nextAction = pendingAction;
+				pendingAction = null;
+				await nextAction();
+			}
 		}
 	}
 
@@ -425,8 +520,50 @@
 			return;
 		}
 
+		// Capture current values for the action
+		const actionParams = {
+			sessionId: session.id,
+			tabId,
+			actionType: selectedAction,
+			explanation,
+			coordinates: clickCoordinates,
+			direction: scrollDirection,
+			text: typeText
+		};
+
+		// Clear form immediately so user can prepare next action
+		const wasStopAction = selectedAction === 'stop';
+		selectedAction = null;
+		explanation = '';
+		clickCoordinates = null;
+		typeText = '';
+
+		// If action already running, queue this one
+		if (actionLoading) {
+			pendingAction = () => runAction(actionParams, wasStopAction);
+			// Show loading indicator while queued
+			showLoadingIndicator = true;
+			return;
+		}
+
+		await runAction(actionParams, wasStopAction);
+	}
+
+	async function runAction(
+		params: {
+			sessionId: string;
+			tabId: string | null;
+			actionType: string;
+			explanation: string;
+			coordinates: { x: number; y: number } | null;
+			direction: 'up' | 'down';
+			text: string;
+		},
+		isStopAction: boolean
+	) {
 		actionLoading = true;
 		error = null;
+		startScreenshotPolling();
 
 		try {
 			const response = await apiRequest<{
@@ -438,15 +575,7 @@
 				newTabId?: string;
 			}>('/api/action', {
 				method: 'POST',
-				body: {
-					sessionId: session.id,
-					tabId,
-					actionType: selectedAction,
-					explanation,
-					coordinates: clickCoordinates,
-					direction: scrollDirection,
-					text: typeText
-				}
+				body: params
 			});
 
 			screenshotPath = response.screenshotPath;
@@ -457,15 +586,18 @@
 			if (response.session.tabs) {
 				tabs = response.session.tabs;
 			}
-
-			selectedAction = null;
-			explanation = '';
-			clickCoordinates = null;
-			typeText = '';
 		} catch (e) {
 			error = getErrorMessage(e);
 		} finally {
+			stopScreenshotPolling();
 			actionLoading = false;
+
+			// Run pending action if queued
+			if (pendingAction) {
+				const nextAction = pendingAction;
+				pendingAction = null;
+				await nextAction();
+			}
 		}
 	}
 
@@ -474,8 +606,9 @@
 	}
 
 	// Check if we're in replay edit mode (replaying a session with upcoming actions)
+	// Only active when user has explicitly replayed (replayedUpTo >= 0) and there are more actions
 	let nextActionIndex = $derived(
-		actions.length > 0 && replayedUpTo < actions.length - 1 ? replayedUpTo + 1 : null
+		replayedUpTo >= 0 && replayedUpTo < actions.length - 1 ? replayedUpTo + 1 : null
 	);
 
 	// Edit mode is active when either replaying or manually editing
@@ -483,8 +616,8 @@
 
 	// Auto-populate form with next action when in replay edit mode (not manual edit)
 	$effect(() => {
-		// Skip if in manual edit mode - form is already populated
-		if (manualEditMode) return;
+		// Skip if in manual edit mode or if replay is still loading
+		if (manualEditMode || replayLoading) return;
 
 		if (nextActionIndex !== null) {
 			const action = actions[nextActionIndex];
@@ -529,7 +662,8 @@
 			(selectedAction !== 'type' || typeText.trim() !== '')
 	);
 
-	let isLoading = $derived(actionLoading || tabLoading);
+	// Only disable buttons if there's already a pending action queued (allow one queue)
+	let isLoading = $derived(tabLoading || pendingAction !== null);
 
 	// When editing, show the action's screenshot; otherwise show current browser state
 	let displayScreenshot = $derived(
@@ -537,6 +671,24 @@
 			? actions[editingActionIndex]?.screenshotPath ?? screenshotPath
 			: screenshotPath
 	);
+
+	// Effective hoverInfo: show current editing state when editing, otherwise use history hover
+	let effectiveHoverInfo = $derived.by((): HoverInfo => {
+		// When editing a click/hover action with coordinates, show those
+		if ((selectedAction === 'click' || selectedAction === 'hover') && clickCoordinates) {
+			return { type: selectedAction, coordinates: clickCoordinates };
+		}
+		// When editing a scroll action, show that
+		if (selectedAction === 'scroll') {
+			return { type: 'scroll', direction: scrollDirection };
+		}
+		// When editing a type action with text, show that
+		if (selectedAction === 'type' && typeText) {
+			return { type: 'type', text: typeText };
+		}
+		// Otherwise use the hover from history
+		return hoverInfo;
+	});
 </script>
 
 <main>
@@ -597,7 +749,8 @@
 							{currentUrl}
 							{replayedUpTo}
 							onReplay={handleReplayAction}
-							{replayLoading}
+							loadingIndex={replayLoading ? replayedUpTo : null}
+							queuedIndex={queuedReplayIndex}
 							onDelete={handleDeleteAction}
 							{deleteLoading}
 							onHoverAction={(info) => (hoverInfo = info)}
@@ -621,7 +774,7 @@
 							</div>
 						</div>
 					{:else if displayScreenshot}
-						<div class="screenshot-wrapper" class:editing-mode={manualEditMode}>
+						<div class="screenshot-wrapper" class:editing-mode={manualEditMode} class:action-running={showLoadingIndicator}>
 							{#if manualEditMode && editingActionIndex !== null}
 								<div class="editing-banner">
 									Editing Action #{editingActionIndex}
@@ -633,7 +786,7 @@
 									{viewport}
 									onclick={handleClick}
 									clickEnabled={selectedAction === 'click' || selectedAction === 'hover'}
-									{hoverInfo}
+									hoverInfo={effectiveHoverInfo}
 								/>
 								{#snippet failed()}
 									<div class="screenshot-placeholder">
@@ -641,12 +794,19 @@
 									</div>
 								{/snippet}
 							</svelte:boundary>
-							{#if replayLoading || actionLoading}
-								<div class="screenshot-loading-overlay">
-									<div class="loading-content">
-										<span class="spinner"></span>
-										<span>Playing action...</span>
-									</div>
+							{#if showLoadingIndicator}
+								<div class="action-loading-overlay"></div>
+								<div class="action-loading-indicator">
+									<span class="spinner-small"></span>
+									<span>Running action...</span>
+								</div>
+							{:else if lateUpdate}
+								<div class="late-update-indicator">
+									Updated
+								</div>
+							{:else if pendingAction}
+								<div class="action-loading-indicator queued">
+									<span>Next action queued...</span>
 								</div>
 							{/if}
 						</div>
@@ -844,6 +1004,24 @@
 		border-radius: 6px;
 	}
 
+	.screenshot-wrapper.action-running {
+		outline: 2px solid var(--color-primary);
+		outline-offset: 2px;
+		border-radius: 6px;
+		animation: pulse-border 1.5s ease-in-out infinite;
+	}
+
+	@keyframes pulse-border {
+		0%, 100% {
+			outline-color: var(--color-primary);
+			outline-offset: 2px;
+		}
+		50% {
+			outline-color: color-mix(in srgb, var(--color-primary) 50%, transparent);
+			outline-offset: 4px;
+		}
+	}
+
 	.editing-banner {
 		position: absolute;
 		top: 0;
@@ -859,21 +1037,74 @@
 		border-radius: 4px 4px 0 0;
 	}
 
-	.screenshot-loading-overlay {
+	.action-loading-overlay {
 		position: absolute;
 		inset: 0;
-		background: rgba(0, 0, 0, 0.5);
-		display: flex;
-		align-items: center;
-		justify-content: center;
+		background: rgba(0, 0, 0, 0.15);
 		border-radius: 4px;
+		z-index: 9;
+		pointer-events: none;
 	}
 
-	.screenshot-loading-overlay .loading-content {
-		background: var(--color-bg-primary, #fff);
-		padding: var(--space-lg);
-		border-radius: var(--radius-lg);
-		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+	.action-loading-indicator {
+		position: absolute;
+		top: var(--space-md);
+		right: var(--space-md);
+		display: flex;
+		align-items: center;
+		gap: var(--space-sm);
+		background: var(--color-primary);
+		color: white;
+		padding: var(--space-sm) var(--space-md);
+		border-radius: var(--radius-md);
+		box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+		font-size: 0.85rem;
+		font-weight: 500;
+		z-index: 10;
+	}
+
+	.spinner-small {
+		width: 16px;
+		height: 16px;
+		border: 2px solid rgba(255, 255, 255, 0.3);
+		border-top-color: white;
+		border-radius: 50%;
+		animation: spin 0.8s linear infinite;
+	}
+
+	.action-loading-indicator.queued {
+		background: var(--color-text-muted);
+	}
+
+	.late-update-indicator {
+		position: absolute;
+		top: var(--space-md);
+		right: var(--space-md);
+		background: var(--color-success, #22c55e);
+		color: white;
+		padding: var(--space-xs) var(--space-md);
+		border-radius: var(--radius-md);
+		font-size: 0.8rem;
+		font-weight: 500;
+		z-index: 10;
+		animation: fade-in-out 0.8s ease-out forwards;
+	}
+
+	@keyframes fade-in-out {
+		0% {
+			opacity: 0;
+			transform: translateY(-4px);
+		}
+		20% {
+			opacity: 1;
+			transform: translateY(0);
+		}
+		80% {
+			opacity: 1;
+		}
+		100% {
+			opacity: 0;
+		}
 	}
 
 	.screenshot-placeholder {

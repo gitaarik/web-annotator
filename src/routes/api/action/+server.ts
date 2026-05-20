@@ -43,7 +43,7 @@ type ActionHandler = (ctx: ActionContext) => Promise<ActionHandlerResult | Respo
 
 const actionHandlers: Record<string, ActionHandler> = {
 	async click(ctx) {
-		if (!ctx.coordinates?.x || !ctx.coordinates?.y) {
+		if (ctx.coordinates?.x == null || ctx.coordinates?.y == null) {
 			return badRequest('Coordinates required for click action');
 		}
 		const actionResult = await executeClick(
@@ -64,7 +64,7 @@ const actionHandlers: Record<string, ActionHandler> = {
 	},
 
 	async hover(ctx) {
-		if (!ctx.coordinates?.x || !ctx.coordinates?.y) {
+		if (ctx.coordinates?.x == null || ctx.coordinates?.y == null) {
 			return badRequest('Coordinates required for hover action');
 		}
 		const actionResult = await executeHover(

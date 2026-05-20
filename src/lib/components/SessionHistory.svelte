@@ -23,7 +23,8 @@
 		currentUrl?: string | null;
 		replayedUpTo?: number;
 		onReplay?: (index: number) => void;
-		replayLoading?: boolean;
+		loadingIndex?: number | null;
+		queuedIndex?: number | null;
 		onDelete?: (index: number) => void;
 		deleteLoading?: boolean;
 		onHoverAction?: (info: HoverInfo) => void;
@@ -38,7 +39,8 @@
 		currentUrl = null,
 		replayedUpTo = -1,
 		onReplay,
-		replayLoading = false,
+		loadingIndex = null,
+		queuedIndex = null,
 		onDelete,
 		deleteLoading = false,
 		onHoverAction,
@@ -47,7 +49,21 @@
 	}: Props = $props();
 
 	function canReplay(index: number): boolean {
-		return onReplay !== undefined && index === replayedUpTo + 1 && !replayLoading;
+		// Can replay if it's the next action and there's no queued action yet
+		return onReplay !== undefined && index === replayedUpTo + 1 && queuedIndex === null;
+	}
+
+	function isLoading(index: number): boolean {
+		return loadingIndex === index;
+	}
+
+	function isQueued(index: number): boolean {
+		return queuedIndex === index;
+	}
+
+	// Show queue icon when something is loading and this is the next playable action
+	function showAsQueueButton(index: number): boolean {
+		return loadingIndex !== null && index === replayedUpTo + 1 && queuedIndex === null;
 	}
 
 	function isReplayed(index: number): boolean {
@@ -58,17 +74,53 @@
 		return onReplay !== undefined && index === replayedUpTo + 1;
 	}
 
+	let isHoveringNextAction = $state(false);
+	let hoverCooldown = $state(false);
+
 	function handleMouseEnter(action: Action, index: number) {
-		if (!onHoverAction || !isNextPlayable(index)) return;
-		const info = actionToHoverInfo(action);
-		if (info) onHoverAction(info);
+		if (!onHoverAction || hoverCooldown) return;
+		// Allow hover overlay for the next playable action
+		if (index === replayedUpTo + 1) {
+			isHoveringNextAction = true;
+			const info = actionToHoverInfo(action);
+			if (info) onHoverAction(info);
+		}
 	}
 
 	function handleMouseLeave() {
 		if (onHoverAction) {
-			onHoverAction(null);
+			isHoveringNextAction = false;
+			// If something is loading, show its overlay; otherwise clear
+			if (loadingIndex !== null) {
+				const loadingAction = actions[loadingIndex];
+				if (loadingAction) {
+					const info = actionToHoverInfo(loadingAction);
+					if (info) onHoverAction(info);
+				}
+			} else {
+				onHoverAction(null);
+			}
 		}
 	}
+
+	// Show overlay for loading action automatically, with cooldown to prevent spurious hover
+	$effect(() => {
+		if (!onHoverAction) return;
+		if (loadingIndex !== null) {
+			// Start cooldown when loading begins
+			hoverCooldown = true;
+			isHoveringNextAction = false;
+			setTimeout(() => (hoverCooldown = false), 300);
+
+			const loadingAction = actions[loadingIndex];
+			if (loadingAction) {
+				const info = actionToHoverInfo(loadingAction);
+				if (info) onHoverAction(info);
+			}
+		} else if (!isHoveringNextAction) {
+			onHoverAction(null);
+		}
+	});
 </script>
 
 <div class="session-history">
@@ -154,13 +206,19 @@
 						{#if onReplay}
 							<button
 								class="play-action-btn"
-								class:loading={replayLoading && index === replayedUpTo + 1}
+								class:loading={isLoading(index)}
+								class:queued={isQueued(index)}
+								class:will-queue={showAsQueueButton(index)}
 								onclick={() => onReplay(index)}
 								disabled={!canReplay(index)}
-								title={isReplayed(index) ? 'Already played' : canReplay(index) ? 'Play action' : 'Play previous actions first'}
+								title={isLoading(index) ? 'Running...' : isQueued(index) ? 'Queued' : showAsQueueButton(index) ? 'Click to queue' : isReplayed(index) ? 'Already played' : canReplay(index) ? 'Play action' : 'Play previous actions first'}
 							>
-								{#if replayLoading && index === replayedUpTo + 1}
+								{#if isLoading(index)}
 									<span class="spinner"></span>
+								{:else if isQueued(index)}
+									⏳
+								{:else if showAsQueueButton(index)}
+									+▶
 								{:else if isReplayed(index)}
 									✓
 								{:else}
@@ -522,6 +580,22 @@
 	.play-action-btn:disabled {
 		background: var(--color-disabled);
 		cursor: not-allowed;
+	}
+
+	.play-action-btn.queued {
+		background: var(--color-warning, #f59e0b);
+	}
+
+	.play-action-btn.queued:hover:not(:disabled) {
+		background: var(--color-warning-hover, #d97706);
+	}
+
+	.play-action-btn.will-queue {
+		background: var(--color-info, #3b82f6);
+	}
+
+	.play-action-btn.will-queue:hover:not(:disabled) {
+		background: var(--color-info-hover, #2563eb);
 	}
 
 	.edit-action-btn {

@@ -5,7 +5,14 @@ import { replaySingleAction, getViewport } from '$lib/server/browser';
 import { badRequest, notFound, errorResponse, getServerErrorMessage } from '$lib/server/api-utils';
 
 export const POST: RequestHandler = async ({ params, request }) => {
-	const { actionIndex, tabId } = await request.json();
+	let body: { actionIndex?: number; tabId?: string };
+	try {
+		body = await request.json();
+	} catch {
+		return badRequest('Invalid JSON');
+	}
+
+	const { actionIndex, tabId } = body;
 
 	if (typeof actionIndex !== 'number') {
 		return badRequest('actionIndex is required');
