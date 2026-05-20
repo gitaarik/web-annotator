@@ -258,6 +258,9 @@
 			}
 
 			actions = data.session.actions;
+
+			// Run the action after updating
+			await handleReplayAction(editingActionIndex);
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'An error occurred';
 		} finally {
@@ -591,7 +594,7 @@
 
 					{#if isEditMode}
 						<button class="update-btn" onclick={updateActionHandler} disabled={loading || !canExecute}>
-							{loading ? 'Updating...' : 'Update Action'}
+							{loading ? 'Running...' : 'Update & Run Action'}
 						</button>
 					{:else}
 						<button class="execute-btn" onclick={executeAction} disabled={loading || !canExecute}>
