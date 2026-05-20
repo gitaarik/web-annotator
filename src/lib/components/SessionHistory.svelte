@@ -88,28 +88,19 @@
 		return navigatingIndex === index;
 	}
 
-	// Check if this action starts on a new URL (different from previous action's ending URL)
-	function startsOnNewUrl(index: number): boolean {
+	// Check if this action caused navigation (has afterUrl different from url)
+	function causedNavigation(index: number): boolean {
 		const action = actions[index];
-		if (!action?.url) return false;
-
-		// First action always starts on a "new" URL
-		if (index === 0) return true;
-
-		const prevAction = actions[index - 1];
-		if (!prevAction) return true;
-
-		// Compare with previous action's ending URL (afterUrl if navigated, otherwise url)
-		const prevEndUrl = prevAction.afterUrl ?? prevAction.url;
-		return action.url !== prevEndUrl;
+		if (!action?.afterUrl) return false;
+		return action.afterUrl !== action.url;
 	}
 
 	function canNavigateTo(index: number): boolean {
-		// Can navigate if not already replayed past this point and not currently loading
+		// Can navigate if action caused navigation and not already replayed past this point
 		return (
 			onNavigateTo !== undefined &&
-			startsOnNewUrl(index) &&
-			index > replayedUpTo &&
+			causedNavigation(index) &&
+			index >= replayedUpTo &&
 			loadingIndex === null &&
 			navigatingIndex === null
 		);
@@ -290,13 +281,13 @@
 								{/if}
 							</button>
 						{/if}
-						{#if onNavigateTo && startsOnNewUrl(index) && !isReplayed(index)}
+						{#if onNavigateTo && causedNavigation(index) && !isReplayed(index)}
 							<button
 								class="navigate-action-btn"
 								class:loading={isNavigating(index)}
-								onclick={() => onNavigateTo(index, actions[index].url)}
+								onclick={() => onNavigateTo(index, actions[index].afterUrl!)}
 								disabled={!canNavigateTo(index)}
-								title={isNavigating(index) ? 'Navigating...' : `Navigate directly to this URL`}
+								title={isNavigating(index) ? 'Navigating...' : `Navigate to result URL`}
 							>
 								{#if isNavigating(index)}
 									<span class="spinner"></span>

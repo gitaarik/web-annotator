@@ -446,8 +446,8 @@
 			viewport = response.viewport;
 			tabId = response.tabId;
 
-			// Set replayedUpTo to index - 1 so this action becomes the next playable
-			replayedUpTo = index - 1;
+			// Set replayedUpTo to index since we navigated to where this action ended
+			replayedUpTo = index;
 		} catch (e) {
 			error = getErrorMessage(e);
 		} finally {
