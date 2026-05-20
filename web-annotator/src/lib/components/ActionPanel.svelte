@@ -1,9 +1,9 @@
 <script lang="ts">
 	interface Props {
-		selectedAction: 'click' | 'scroll' | 'type' | 'stop' | null;
+		selectedAction: 'click' | 'scroll' | 'type' | 'wait' | 'stop' | null;
 		scrollDirection: 'up' | 'down';
 		typeText: string;
-		onactionchange: (action: 'click' | 'scroll' | 'type' | 'stop') => void;
+		onactionchange: (action: 'click' | 'scroll' | 'type' | 'wait' | 'stop') => void;
 		onscrolldirectionchange: (direction: 'up' | 'down') => void;
 		ontextchange: (text: string) => void;
 	}
@@ -88,6 +88,19 @@
 				/>
 			</div>
 		{/if}
+
+		<label class:selected={selectedAction === 'wait'}>
+			<input
+				type="radio"
+				name="action"
+				value="wait"
+				checked={selectedAction === 'wait'}
+				onchange={() => onactionchange('wait')}
+			/>
+			<span class="action-icon">&#9203;</span>
+			Wait
+			<span class="action-hint">Wait for page to finish loading</span>
+		</label>
 
 		<label class:selected={selectedAction === 'stop'}>
 			<input

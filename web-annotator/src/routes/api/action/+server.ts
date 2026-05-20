@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { executeClick, executeScroll, executeType } from '$lib/server/browser';
+import { executeClick, executeScroll, executeType, executeWait } from '$lib/server/browser';
 import { addAction, getSession } from '$lib/server/storage';
 import type { Action } from '$lib/types';
 
@@ -38,6 +38,8 @@ export const POST: RequestHandler = async ({ request }) => {
 				return json({ error: 'Text required for type action' }, { status: 400 });
 			}
 			screenshotPath = await executeType(text, sessionId, screenshotIndex);
+		} else if (actionType === 'wait') {
+			screenshotPath = await executeWait(sessionId, screenshotIndex);
 		} else if (actionType === 'stop') {
 			// For stop, use the last screenshot (either from last action or initial)
 			const lastAction = session.actions[session.actions.length - 1];

@@ -10,7 +10,7 @@ export interface AnnotationSession {
 }
 
 export interface Action {
-	type: 'click' | 'scroll' | 'type' | 'stop';
+	type: 'click' | 'scroll' | 'type' | 'wait' | 'stop';
 	explanation: string;
 	timestamp: string;
 	coordinates?: { x: number; y: number };

@@ -15,6 +15,8 @@
 				return `Scroll ${action.direction}`;
 			case 'type':
 				return `Type "${action.text}"`;
+			case 'wait':
+				return 'Wait for page load';
 			case 'stop':
 				return 'Stop - Task completed';
 			default:

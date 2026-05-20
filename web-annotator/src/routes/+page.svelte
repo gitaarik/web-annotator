@@ -24,7 +24,7 @@
 	let actions = $state<Action[]>([]);
 	let isCompleted = $state(false);
 
-	let selectedAction = $state<'click' | 'scroll' | 'type' | 'stop' | null>(null);
+	let selectedAction = $state<'click' | 'scroll' | 'type' | 'wait' | 'stop' | null>(null);
 	let scrollDirection = $state<'up' | 'down'>('down');
 	let typeText = $state('');
 	let explanation = $state('');

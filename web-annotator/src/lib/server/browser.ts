@@ -4,6 +4,7 @@ import * as path from 'path';
 
 const VIEWPORT = { width: 1280, height: 800 };
 const SCROLL_AMOUNT = 400;
+const NETWORK_IDLE_TIMEOUT = 5000; // Max time to wait for network idle
 
 let browser: Browser | null = null;
 let page: Page | null = null;
@@ -22,6 +23,14 @@ async function getPage(): Promise<Page> {
 		page = await context.newPage();
 	}
 	return page;
+}
+
+async function waitForNetworkIdle(p: Page): Promise<void> {
+	try {
+		await p.waitForLoadState('networkidle', { timeout: NETWORK_IDLE_TIMEOUT });
+	} catch {
+		// Timeout is ok - we don't want to block forever
+	}
 }
 
 export async function navigateAndScreenshot(
@@ -48,7 +57,7 @@ export async function executeClick(
 ): Promise<string> {
 	const p = await getPage();
 	await p.mouse.click(x, y);
-	await p.waitForTimeout(500);
+	await waitForNetworkIdle(p);
 
 	const screenshotPath = path.join(
 		process.cwd(),
@@ -70,7 +79,7 @@ export async function executeScroll(
 	const p = await getPage();
 	const scrollY = direction === 'down' ? SCROLL_AMOUNT : -SCROLL_AMOUNT;
 	await p.mouse.wheel(0, scrollY);
-	await p.waitForTimeout(500);
+	await waitForNetworkIdle(p);
 
 	const screenshotPath = path.join(
 		process.cwd(),
@@ -91,7 +100,26 @@ export async function executeType(
 ): Promise<string> {
 	const p = await getPage();
 	await p.keyboard.type(text, { delay: 50 });
-	await p.waitForTimeout(300);
+	await waitForNetworkIdle(p);
+
+	const screenshotPath = path.join(
+		process.cwd(),
+		'static',
+		'screenshots',
+		sessionId,
+		`${actionIndex}.png`
+	);
+	await p.screenshot({ path: screenshotPath, fullPage: false });
+
+	return `/screenshots/${sessionId}/${actionIndex}.png`;
+}
+
+export async function executeWait(
+	sessionId: string,
+	actionIndex: number
+): Promise<string> {
+	const p = await getPage();
+	await waitForNetworkIdle(p);
 
 	const screenshotPath = path.join(
 		process.cwd(),
