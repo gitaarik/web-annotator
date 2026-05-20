@@ -49,6 +49,25 @@
 		if (!isCompleted) {
 			initializeBrowser();
 		}
+
+		// Poll for browser URL changes every 2 seconds
+		const pollInterval = setInterval(async () => {
+			if (!session.id || !tabId || browserLoading || actionLoading || replayLoading) return;
+
+			try {
+				const response = await fetch(`/api/sessions/${session.id}/refresh`);
+				const data = await response.json();
+
+				if (data.url && data.url !== currentUrl) {
+					// URL changed, auto-refresh screenshot
+					handleRefreshScreenshot();
+				}
+			} catch {
+				// Ignore polling errors
+			}
+		}, 2000);
+
+		return () => clearInterval(pollInterval);
 	});
 
 	async function initializeBrowser() {
@@ -139,11 +158,13 @@
 				screenshotPath: string;
 				viewport: { width: number; height: number };
 				tabId: string;
+				currentUrl: string;
 			}>(`/api/sessions/${session.id}/refresh`, { method: 'POST', body: { tabId } });
 
 			screenshotPath = response.screenshotPath;
 			viewport = response.viewport;
 			tabId = response.tabId;
+			currentUrl = response.currentUrl;
 		} catch (e) {
 			error = getErrorMessage(e);
 		} finally {

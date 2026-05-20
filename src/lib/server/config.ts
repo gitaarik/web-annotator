@@ -40,7 +40,34 @@ export const browserConfig = {
 	networkIdleTimeout: getEnvNumber('BROWSER_NETWORK_IDLE_TIMEOUT', 5000),
 
 	/** Image loading timeout (ms) */
-	imageLoadTimeout: getEnvNumber('BROWSER_IMAGE_LOAD_TIMEOUT', 3000)
+	imageLoadTimeout: getEnvNumber('BROWSER_IMAGE_LOAD_TIMEOUT', 3000),
+
+	/** Post-action monitoring for delayed redirects (ms) */
+	postActionMonitorTimeout: getEnvNumber('BROWSER_POST_ACTION_MONITOR_TIMEOUT', 3000)
 } as const;
 
 export type BrowserConfig = typeof browserConfig;
+
+/**
+ * OS-level input configuration.
+ * When enabled, uses real OS events (xdotool/osascript/SendKeys) instead of CDP.
+ */
+export const inputConfig = {
+	/** Enable OS-level input (USE_OS_INPUT=true to enable, default: false) */
+	useOsInput: process.env.USE_OS_INPUT === 'true',
+
+	/** Base delay between keystrokes in ms */
+	charDelayMs: getEnvNumber('CHAR_DELAY_MS', 50),
+
+	/** Variance factor for typing delays (0.4 = ±40%) */
+	charDelayVariance: 0.4,
+
+	/** Mouse movement config */
+	mouse: {
+		minSteps: 15,
+		maxSteps: 30,
+		tremorAmount: 2
+	}
+} as const;
+
+export type InputConfig = typeof inputConfig;

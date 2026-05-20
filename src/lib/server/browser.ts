@@ -1,8 +1,10 @@
 import { chromium, type Browser, type BrowserContext, type Page, type Frame } from 'playwright';
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { browserConfig } from './config';
+import { browserConfig, inputConfig } from './config';
 import type { Redirect } from '$lib/types';
+import { isBrowserFocused, invalidateFocusCache } from './focus';
+import { osClick, osType } from './os-input';
 
 let browser: Browser | null = null;
 let context: BrowserContext | null = null;
@@ -42,8 +44,61 @@ async function getContext(): Promise<BrowserContext> {
 	if (!context) {
 		const b = await getBrowser();
 		context = await b.newContext({ viewport: browserConfig.viewport });
+		// Invalidate focus cache when new browser context is created
+		invalidateFocusCache();
 	}
 	return context;
+}
+
+/**
+ * Get browser window bounds via CDP for coordinate conversion.
+ * Returns the window position and chrome bar height.
+ */
+async function getWindowBounds(
+	page: Page
+): Promise<{ left: number; top: number; chromeBarHeight: number } | null> {
+	try {
+		const cdpSession = await page.context().newCDPSession(page);
+
+		// Get window bounds
+		const { bounds } = (await cdpSession.send('Browser.getWindowForTarget')) as {
+			bounds: { left: number; top: number; width: number; height: number };
+		};
+
+		// Get viewport height to calculate chrome bar
+		const { cssLayoutViewport } = (await cdpSession.send('Page.getLayoutMetrics')) as {
+			cssLayoutViewport: { clientHeight: number };
+		};
+
+		const chromeBarHeight = bounds.height - cssLayoutViewport.clientHeight;
+
+		await cdpSession.detach();
+
+		return {
+			left: bounds.left,
+			top: bounds.top,
+			chromeBarHeight
+		};
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Convert viewport coordinates to screen coordinates for OS-level input.
+ */
+async function viewportToScreen(
+	page: Page,
+	viewportX: number,
+	viewportY: number
+): Promise<{ x: number; y: number } | null> {
+	const bounds = await getWindowBounds(page);
+	if (!bounds) return null;
+
+	return {
+		x: bounds.left + viewportX,
+		y: bounds.top + bounds.chromeBarHeight + viewportY
+	};
 }
 
 /**
@@ -295,6 +350,7 @@ export interface ActionResult {
 /**
  * Tracks navigation redirects during action execution.
  * Captures screenshots for pages that actually load (not instant HTTP redirects).
+ * Also monitors for delayed redirects after the page appears stable.
  */
 async function withRedirectTracking(
 	page: Page,
@@ -305,6 +361,7 @@ async function withRedirectTracking(
 ): Promise<Redirect[]> {
 	const redirects: Redirect[] = [];
 	let redirectCounter = 0;
+	let navigationInProgress = false;
 
 	// Track each navigation
 	const onFrameNavigated = (frame: Frame) => {
@@ -316,6 +373,7 @@ async function withRedirectTracking(
 		// Skip about:blank and similar
 		if (url.startsWith('about:') || url.startsWith('chrome:')) return;
 		redirects.push({ url });
+		navigationInProgress = true;
 	};
 
 	// Capture screenshot when page actually loads
@@ -334,6 +392,7 @@ async function withRedirectTracking(
 				// Screenshot failed, continue without it
 			}
 		}
+		navigationInProgress = false;
 	};
 
 	page.on('framenavigated', onFrameNavigated);
@@ -342,6 +401,21 @@ async function withRedirectTracking(
 	try {
 		await action();
 		await waitForPageStable(page);
+
+		// Post-action monitoring for delayed redirects
+		const monitorStart = Date.now();
+		const monitorTimeout = browserConfig.postActionMonitorTimeout;
+
+		while (Date.now() - monitorStart < monitorTimeout) {
+			// If a navigation just happened, wait for it to complete
+			if (navigationInProgress) {
+				await waitForPageStable(page);
+				// Reset the monitor timer after a navigation completes
+				continue;
+			}
+			// Check every 100ms
+			await new Promise((resolve) => setTimeout(resolve, 100));
+		}
 	} finally {
 		page.off('framenavigated', onFrameNavigated);
 		page.off('load', onLoad);
@@ -369,6 +443,19 @@ export async function executeClick(
 	const beforeUrl = p.url();
 
 	const redirects = await withRedirectTracking(p, sessionId, actionIndex, beforeUrl, async () => {
+		// Try OS-level click if enabled and browser is focused
+		if (inputConfig.useOsInput) {
+			const screenCoords = await viewportToScreen(p, x, y);
+			if (screenCoords && (await isBrowserFocused())) {
+				try {
+					await osClick(screenCoords.x, screenCoords.y);
+					return;
+				} catch {
+					// Fall through to CDP on error
+				}
+			}
+		}
+		// CDP fallback (default)
 		await p.mouse.click(x, y);
 	});
 
@@ -408,6 +495,19 @@ export async function executeType(
 	const beforeUrl = p.url();
 
 	const redirects = await withRedirectTracking(p, sessionId, actionIndex, beforeUrl, async () => {
+		// Try OS-level typing if enabled and browser is focused
+		if (inputConfig.useOsInput && (await isBrowserFocused())) {
+			try {
+				await osType(text, {
+					charDelayMs: inputConfig.charDelayMs,
+					charDelayVariance: inputConfig.charDelayVariance
+				});
+				return;
+			} catch {
+				// Fall through to CDP on error
+			}
+		}
+		// CDP fallback (default)
 		await p.keyboard.type(text, { delay: browserConfig.typingDelay });
 	});
 
@@ -459,12 +559,40 @@ export async function replaySingleAction(
 		beforeUrl,
 		async () => {
 			if (action.type === 'click' && action.coordinates) {
+				// Try OS-level click if enabled and browser is focused
+				if (inputConfig.useOsInput) {
+					const screenCoords = await viewportToScreen(
+						p,
+						action.coordinates.x,
+						action.coordinates.y
+					);
+					if (screenCoords && (await isBrowserFocused())) {
+						try {
+							await osClick(screenCoords.x, screenCoords.y);
+							return;
+						} catch {
+							// Fall through to CDP on error
+						}
+					}
+				}
 				await p.mouse.click(action.coordinates.x, action.coordinates.y);
 			} else if (action.type === 'scroll' && action.direction) {
 				const scrollY =
 					action.direction === 'down' ? browserConfig.scrollAmount : -browserConfig.scrollAmount;
 				await p.mouse.wheel(0, scrollY);
 			} else if (action.type === 'type' && action.text) {
+				// Try OS-level typing if enabled and browser is focused
+				if (inputConfig.useOsInput && (await isBrowserFocused())) {
+					try {
+						await osType(action.text, {
+							charDelayMs: inputConfig.charDelayMs,
+							charDelayVariance: inputConfig.charDelayVariance
+						});
+						return;
+					} catch {
+						// Fall through to CDP on error
+					}
+				}
 				await p.keyboard.type(action.text, { delay: browserConfig.typingDelay });
 			}
 			// For 'wait' and 'stop' actions, just wait for page stability
