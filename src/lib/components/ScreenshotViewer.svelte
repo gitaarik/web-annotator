@@ -15,6 +15,12 @@
 	let clickPosition: { x: number; y: number } | null = $state(null);
 	let layoutVersion = $state(0);
 
+	// Clear click position when screenshot changes
+	$effect(() => {
+		src;
+		clickPosition = null;
+	});
+
 	function handleClick(event: MouseEvent) {
 		if (!clickEnabled || !imageElement || !onclick) return;
 
