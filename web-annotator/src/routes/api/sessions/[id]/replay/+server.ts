@@ -5,10 +5,14 @@ import { replaySingleAction, getViewport, getCurrentUrl } from '$lib/server/brow
 import { badRequest, notFound, errorResponse, getServerErrorMessage } from '$lib/server/api-utils';
 
 export const POST: RequestHandler = async ({ params, request }) => {
-	const { actionIndex } = await request.json();
+	const { actionIndex, tabId } = await request.json();
 
 	if (typeof actionIndex !== 'number') {
 		return badRequest('actionIndex is required');
+	}
+
+	if (!tabId) {
+		return badRequest('tabId is required');
 	}
 
 	const session = await getSession(params.id);
@@ -24,8 +28,8 @@ export const POST: RequestHandler = async ({ params, request }) => {
 	const action = session.actions[actionIndex];
 
 	try {
-		const screenshotPath = await replaySingleAction(action, session.id, actionIndex);
-		const url = await getCurrentUrl();
+		const screenshotPath = await replaySingleAction(tabId, action, session.id, actionIndex);
+		const url = getCurrentUrl(tabId);
 		const viewport = getViewport();
 
 		const updatedSession = await updateAction(params.id, actionIndex, {
@@ -33,7 +37,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 			url
 		});
 
-		return json({ screenshotPath, viewport, actionIndex, session: updatedSession });
+		return json({ screenshotPath, viewport, actionIndex, session: updatedSession, tabId });
 	} catch (error) {
 		return errorResponse(getServerErrorMessage(error, 'Failed to replay action'));
 	}

@@ -1,6 +1,6 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import type { AnnotationSession, Action } from '$lib/types';
+import type { AnnotationSession, Action, Tab } from '$lib/types';
 
 const DATA_DIR = path.join(process.cwd(), 'data', 'sessions');
 
@@ -17,9 +17,16 @@ export async function createSession(
 	url: string,
 	prompt: string,
 	plan: string,
-	initialScreenshot: string
+	initialScreenshot: string,
+	initialTabId: string
 ): Promise<AnnotationSession> {
 	await ensureDataDir();
+
+	const initialTab: Tab = {
+		id: initialTabId,
+		url,
+		createdAt: new Date().toISOString()
+	};
 
 	const session: AnnotationSession = {
 		id,
@@ -27,6 +34,8 @@ export async function createSession(
 		prompt,
 		plan,
 		createdAt: new Date().toISOString(),
+		tabs: [initialTab],
+		activeTabId: initialTabId,
 		actions: [],
 		initialScreenshot
 	};
@@ -145,4 +154,76 @@ export async function listSessions(): Promise<AnnotationSession[]> {
 	// Sort by creation date, newest first
 	sessions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 	return sessions;
+}
+
+// Tab management functions
+
+export async function addTab(
+	sessionId: string,
+	tab: Tab
+): Promise<AnnotationSession | null> {
+	const session = await getSession(sessionId);
+	if (!session) return null;
+
+	session.tabs.push(tab);
+	session.activeTabId = tab.id;
+
+	await fs.writeFile(getSessionPath(sessionId), JSON.stringify(session, null, 2));
+	return session;
+}
+
+export async function updateTab(
+	sessionId: string,
+	tabId: string,
+	updates: Partial<Tab>
+): Promise<AnnotationSession | null> {
+	const session = await getSession(sessionId);
+	if (!session) return null;
+
+	const tabIndex = session.tabs.findIndex((t) => t.id === tabId);
+	if (tabIndex === -1) return null;
+
+	session.tabs[tabIndex] = { ...session.tabs[tabIndex], ...updates };
+
+	await fs.writeFile(getSessionPath(sessionId), JSON.stringify(session, null, 2));
+	return session;
+}
+
+export async function closeTabInSession(
+	sessionId: string,
+	tabId: string
+): Promise<AnnotationSession | null> {
+	const session = await getSession(sessionId);
+	if (!session) return null;
+
+	const tabIndex = session.tabs.findIndex((t) => t.id === tabId);
+	if (tabIndex === -1) return null;
+
+	// Mark tab as closed rather than removing it (preserves history)
+	session.tabs[tabIndex].closedAt = new Date().toISOString();
+
+	// If this was the active tab, switch to another open tab
+	if (session.activeTabId === tabId) {
+		const openTab = session.tabs.find((t) => !t.closedAt && t.id !== tabId);
+		session.activeTabId = openTab?.id ?? '';
+	}
+
+	await fs.writeFile(getSessionPath(sessionId), JSON.stringify(session, null, 2));
+	return session;
+}
+
+export async function setActiveTab(
+	sessionId: string,
+	tabId: string
+): Promise<AnnotationSession | null> {
+	const session = await getSession(sessionId);
+	if (!session) return null;
+
+	const tab = session.tabs.find((t) => t.id === tabId && !t.closedAt);
+	if (!tab) return null;
+
+	session.activeTabId = tabId;
+
+	await fs.writeFile(getSessionPath(sessionId), JSON.stringify(session, null, 2));
+	return session;
 }

@@ -6,13 +6,16 @@
 	import SessionHistory from '$lib/components/SessionHistory.svelte';
 	import SetupForm from '$lib/components/SetupForm.svelte';
 	import SavedSessionsList from '$lib/components/SavedSessionsList.svelte';
-	import { type Action, type SessionSummary, type HoverInfo, formatAction } from '$lib/types';
+	import TabBar from '$lib/components/TabBar.svelte';
+	import { type Action, type SessionSummary, type HoverInfo, type Tab, formatAction } from '$lib/types';
 	import { apiRequest, getErrorMessage } from '$lib/api';
 
 	let url = $state('');
 	let prompt = $state('');
 	let plan = $state('');
 	let sessionId = $state<string | null>(null);
+	let tabId = $state<string | null>(null);
+	let tabs = $state<Tab[]>([]);
 	let screenshotPath = $state<string | null>(null);
 	let viewport = $state({ width: 1280, height: 800 });
 	let actions = $state<Action[]>([]);
@@ -30,6 +33,7 @@
 	let replayLoading = $state(false);
 	let deleteLoading = $state(false);
 	let refreshLoading = $state(false);
+	let tabLoading = $state(false);
 	let hoverInfo = $state<HoverInfo>(null);
 	let editingActionIndex = $state<number | null>(null);
 
@@ -73,12 +77,16 @@
 
 		try {
 			const data = await apiRequest<{
-				session: { id: string; url: string; prompt: string; plan: string; actions: Action[] };
+				session: { id: string; url: string; prompt: string; plan: string; actions: Action[]; tabs?: Tab[]; activeTabId?: string };
 				screenshotPath: string;
 				viewport: { width: number; height: number };
+				tabId: string;
+				tabs?: Tab[];
 			}>(`/api/sessions/${id}`, { method: 'POST' });
 
 			sessionId = data.session.id;
+			tabId = data.tabId;
+			tabs = data.tabs ?? data.session.tabs ?? [];
 			url = data.session.url;
 			prompt = data.session.prompt;
 			plan = data.session.plan;
@@ -96,7 +104,7 @@
 	}
 
 	async function handleReplayAction(index: number) {
-		if (!sessionId || index < 0 || index >= actions.length) return;
+		if (!sessionId || !tabId || index < 0 || index >= actions.length) return;
 
 		replayLoading = true;
 		error = null;
@@ -106,14 +114,16 @@
 				screenshotPath: string;
 				viewport: { width: number; height: number };
 				session?: { actions: Action[] };
+				tabId: string;
 			}>(`/api/sessions/${sessionId}/replay`, {
 				method: 'POST',
-				body: { actionIndex: index }
+				body: { actionIndex: index, tabId }
 			});
 
 			screenshotPath = data.screenshotPath;
 			viewport = data.viewport;
 			replayedUpTo = index;
+			tabId = data.tabId;
 
 			if (data.session) {
 				actions = data.session.actions;
@@ -172,7 +182,7 @@
 	}
 
 	async function handleRefreshScreenshot() {
-		if (!sessionId) return;
+		if (!sessionId || !tabId) return;
 
 		refreshLoading = true;
 		error = null;
@@ -181,14 +191,134 @@
 			const data = await apiRequest<{
 				screenshotPath: string;
 				viewport: { width: number; height: number };
-			}>(`/api/sessions/${sessionId}/refresh`, { method: 'POST' });
+				tabId: string;
+			}>(`/api/sessions/${sessionId}/refresh`, { method: 'POST', body: { tabId } });
 
 			screenshotPath = data.screenshotPath;
 			viewport = data.viewport;
+			tabId = data.tabId;
 		} catch (e) {
 			error = getErrorMessage(e);
 		} finally {
 			refreshLoading = false;
+		}
+	}
+
+	async function handleSwitchTab(newTabId: string) {
+		if (!sessionId || !newTabId || newTabId === tabId) return;
+
+		tabLoading = true;
+		error = null;
+
+		try {
+			const data = await apiRequest<{
+				screenshotPath: string;
+				session: { actions: Action[]; tabs?: Tab[] };
+				completed: boolean;
+				tabId: string;
+			}>('/api/action', {
+				method: 'POST',
+				body: {
+					sessionId,
+					tabId,
+					actionType: 'switchTab',
+					explanation: `Switch to tab`,
+					targetTabId: newTabId
+				}
+			});
+
+			screenshotPath = data.screenshotPath;
+			actions = data.session.actions;
+			tabId = data.tabId;
+			if (data.session.tabs) {
+				tabs = data.session.tabs;
+			}
+		} catch (e) {
+			error = getErrorMessage(e);
+		} finally {
+			tabLoading = false;
+		}
+	}
+
+	async function handleNewTab() {
+		if (!sessionId || !tabId) return;
+
+		const newUrl = window.prompt('Enter URL for new tab:', 'https://');
+		if (!newUrl) return;
+
+		tabLoading = true;
+		error = null;
+
+		try {
+			const data = await apiRequest<{
+				screenshotPath: string;
+				session: { actions: Action[]; tabs?: Tab[] };
+				completed: boolean;
+				tabId: string;
+				newTabId?: string;
+			}>('/api/action', {
+				method: 'POST',
+				body: {
+					sessionId,
+					tabId,
+					actionType: 'newTab',
+					explanation: `Open new tab: ${newUrl}`,
+					targetUrl: newUrl
+				}
+			});
+
+			screenshotPath = data.screenshotPath;
+			actions = data.session.actions;
+			tabId = data.tabId;
+			if (data.session.tabs) {
+				tabs = data.session.tabs;
+			}
+		} catch (e) {
+			error = getErrorMessage(e);
+		} finally {
+			tabLoading = false;
+		}
+	}
+
+	async function handleCloseTab(closeTabId: string) {
+		if (!sessionId || !tabId) return;
+
+		const openTabs = tabs.filter((t) => !t.closedAt);
+		if (openTabs.length <= 1) {
+			error = 'Cannot close the last tab';
+			return;
+		}
+
+		tabLoading = true;
+		error = null;
+
+		try {
+			const data = await apiRequest<{
+				screenshotPath: string;
+				session: { actions: Action[]; tabs?: Tab[] };
+				completed: boolean;
+				tabId: string;
+			}>('/api/action', {
+				method: 'POST',
+				body: {
+					sessionId,
+					tabId,
+					actionType: 'closeTab',
+					explanation: `Close tab`,
+					targetTabId: closeTabId
+				}
+			});
+
+			screenshotPath = data.screenshotPath;
+			actions = data.session.actions;
+			tabId = data.tabId;
+			if (data.session.tabs) {
+				tabs = data.session.tabs;
+			}
+		} catch (e) {
+			error = getErrorMessage(e);
+		} finally {
+			tabLoading = false;
 		}
 	}
 
@@ -271,9 +401,13 @@
 				sessionId: string;
 				screenshotPath: string;
 				viewport: { width: number; height: number };
+				tabId: string;
+				tabs: Tab[];
 			}>('/api/screenshot', { method: 'POST', body: { url, prompt, plan } });
 
 			sessionId = data.sessionId;
+			tabId = data.tabId;
+			tabs = data.tabs;
 			screenshotPath = data.screenshotPath;
 			viewport = data.viewport;
 			actions = [];
@@ -291,7 +425,7 @@
 	}
 
 	async function executeAction() {
-		if (!sessionId || !selectedAction || !explanation.trim()) {
+		if (!sessionId || !tabId || !selectedAction || !explanation.trim()) {
 			error = 'Please select an action and provide an explanation';
 			return;
 		}
@@ -312,12 +446,15 @@
 		try {
 			const data = await apiRequest<{
 				screenshotPath: string;
-				session: { actions: Action[] };
+				session: { actions: Action[]; tabs?: Tab[] };
 				completed: boolean;
+				tabId: string;
+				newTabId?: string;
 			}>('/api/action', {
 				method: 'POST',
 				body: {
 					sessionId,
+					tabId,
 					actionType: selectedAction,
 					explanation,
 					coordinates: clickCoordinates,
@@ -329,6 +466,10 @@
 			screenshotPath = data.screenshotPath;
 			actions = data.session.actions;
 			isCompleted = data.completed;
+			tabId = data.tabId;
+			if (data.session.tabs) {
+				tabs = data.session.tabs;
+			}
 
 			selectedAction = null;
 			explanation = '';
@@ -343,6 +484,8 @@
 
 	function resetSession() {
 		sessionId = null;
+		tabId = null;
+		tabs = [];
 		screenshotPath = null;
 		actions = [];
 		isCompleted = false;
@@ -369,7 +512,13 @@
 		if (nextActionIndex !== null) {
 			const action = actions[nextActionIndex];
 			editingActionIndex = nextActionIndex;
-			selectedAction = action.type;
+			// Only set selectedAction for supported action types
+			const supportedTypes = ['click', 'scroll', 'type', 'wait', 'stop'] as const;
+			if (supportedTypes.includes(action.type as typeof supportedTypes[number])) {
+				selectedAction = action.type as typeof supportedTypes[number];
+			} else {
+				selectedAction = null;
+			}
 			explanation = action.explanation;
 
 			if (action.type === 'click' && action.coordinates) {
@@ -449,6 +598,17 @@
 					<p class="plan-text">{plan}</p>
 				</details>
 			</div>
+
+			{#if tabs.length > 0}
+				<TabBar
+					{tabs}
+					activeTabId={tabId}
+					loading={tabLoading || loading}
+					onSwitchTab={handleSwitchTab}
+					onNewTab={handleNewTab}
+					onCloseTab={handleCloseTab}
+				/>
+			{/if}
 
 			{#if actions.length > 0}
 				<div class="history-section">
