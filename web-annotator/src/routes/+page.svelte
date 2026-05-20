@@ -17,6 +17,7 @@
 	let tabId = $state<string | null>(null);
 	let tabs = $state<Tab[]>([]);
 	let screenshotPath = $state<string | null>(null);
+	let currentUrl = $state<string | null>(null);
 	let viewport = $state({ width: 1280, height: 800 });
 	let actions = $state<Action[]>([]);
 	let isCompleted = $state(false);
@@ -112,6 +113,7 @@
 		try {
 			const data = await apiRequest<{
 				screenshotPath: string;
+				currentUrl?: string;
 				viewport: { width: number; height: number };
 				session?: { actions: Action[] };
 				tabId: string;
@@ -121,6 +123,7 @@
 			});
 
 			screenshotPath = data.screenshotPath;
+			currentUrl = data.currentUrl ?? null;
 			viewport = data.viewport;
 			replayedUpTo = index;
 			tabId = data.tabId;
@@ -409,6 +412,7 @@
 			tabId = data.tabId;
 			tabs = data.tabs;
 			screenshotPath = data.screenshotPath;
+			currentUrl = url; // Initial URL is the current URL
 			viewport = data.viewport;
 			actions = [];
 		} catch (e) {
@@ -446,6 +450,7 @@
 		try {
 			const data = await apiRequest<{
 				screenshotPath: string;
+				currentUrl?: string;
 				session: { actions: Action[]; tabs?: Tab[] };
 				completed: boolean;
 				tabId: string;
@@ -464,6 +469,7 @@
 			});
 
 			screenshotPath = data.screenshotPath;
+			currentUrl = data.currentUrl ?? null;
 			actions = data.session.actions;
 			isCompleted = data.completed;
 			tabId = data.tabId;
@@ -487,6 +493,7 @@
 		tabId = null;
 		tabs = [];
 		screenshotPath = null;
+		currentUrl = null;
 		actions = [];
 		isCompleted = false;
 		url = '';
@@ -584,7 +591,7 @@
 			<p>Total actions: {actions.length}</p>
 			<p>Final answer: {actions[actions.length - 1]?.explanation}</p>
 
-			<SessionHistory {actions} {viewport} onDelete={handleDeleteAction} {deleteLoading} />
+			<SessionHistory {actions} {viewport} currentScreenshot={screenshotPath} {currentUrl} onDelete={handleDeleteAction} {deleteLoading} />
 
 			<button onclick={resetSession}>Start New Session</button>
 		</section>
@@ -610,11 +617,13 @@
 				/>
 			{/if}
 
-			{#if actions.length > 0}
+			{#if actions.length > 0 || screenshotPath}
 				<div class="history-section">
 					<SessionHistory
 						{actions}
 						{viewport}
+						currentScreenshot={screenshotPath}
+						{currentUrl}
 						{replayedUpTo}
 						onReplay={handleReplayAction}
 						{replayLoading}

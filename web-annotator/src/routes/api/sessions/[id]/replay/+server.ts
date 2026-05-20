@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getSession, updateAction } from '$lib/server/storage';
-import { replaySingleAction, getViewport, getCurrentUrl } from '$lib/server/browser';
+import { replaySingleAction, getViewport } from '$lib/server/browser';
 import { badRequest, notFound, errorResponse, getServerErrorMessage } from '$lib/server/api-utils';
 
 export const POST: RequestHandler = async ({ params, request }) => {
@@ -28,16 +28,24 @@ export const POST: RequestHandler = async ({ params, request }) => {
 	const action = session.actions[actionIndex];
 
 	try {
-		const screenshotPath = await replaySingleAction(tabId, action, session.id, actionIndex);
-		const url = getCurrentUrl(tabId);
+		const result = await replaySingleAction(tabId, action, session.id, actionIndex);
 		const viewport = getViewport();
 
+		// Update action with BEFORE screenshot (state when action was taken)
 		const updatedSession = await updateAction(params.id, actionIndex, {
-			screenshotPath,
-			url
+			screenshotPath: result.beforeScreenshot,
+			url: result.beforeUrl
 		});
 
-		return json({ screenshotPath, viewport, actionIndex, session: updatedSession, tabId });
+		// Return AFTER screenshot for UI display
+		return json({
+			screenshotPath: result.afterScreenshot,
+			currentUrl: result.afterUrl,
+			viewport,
+			actionIndex,
+			session: updatedSession,
+			tabId
+		});
 	} catch (error) {
 		return errorResponse(getServerErrorMessage(error, 'Failed to replay action'));
 	}

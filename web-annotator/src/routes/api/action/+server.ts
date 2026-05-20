@@ -9,7 +9,8 @@ import {
 	createTab,
 	switchTab,
 	closeTab,
-	refreshScreenshot
+	refreshScreenshot,
+	type ActionResult
 } from '$lib/server/browser';
 import { addAction, getSession, addTab, setActiveTab, closeTabInSession } from '$lib/server/storage';
 import { badRequest, notFound, errorResponse, getServerErrorMessage } from '$lib/server/api-utils';
@@ -36,7 +37,11 @@ export const POST: RequestHandler = async ({ request }) => {
 	const screenshotIndex = session.actions.length + 1;
 
 	try {
-		let screenshotPath: string;
+		let actionResult: ActionResult | null = null;
+		let screenshotPath!: string; // BEFORE screenshot for action record
+		let currentScreenshot!: string; // AFTER screenshot for UI
+		let url!: string; // BEFORE URL for action record
+		let currentUrl!: string; // AFTER URL for UI
 		let newTabId: string | undefined;
 		let currentTabId = tabId;
 
@@ -44,22 +49,26 @@ export const POST: RequestHandler = async ({ request }) => {
 			if (!coordinates?.x || !coordinates?.y) {
 				return badRequest('Coordinates required for click action');
 			}
-			screenshotPath = await executeClick(tabId, coordinates.x, coordinates.y, sessionId, screenshotIndex);
+			actionResult = await executeClick(tabId, coordinates.x, coordinates.y, sessionId, screenshotIndex);
 		} else if (actionType === 'scroll') {
 			if (!direction) {
 				return badRequest('Direction required for scroll action');
 			}
-			screenshotPath = await executeScroll(tabId, direction, sessionId, screenshotIndex);
+			actionResult = await executeScroll(tabId, direction, sessionId, screenshotIndex);
 		} else if (actionType === 'type') {
 			if (!text) {
 				return badRequest('Text required for type action');
 			}
-			screenshotPath = await executeType(tabId, text, sessionId, screenshotIndex);
+			actionResult = await executeType(tabId, text, sessionId, screenshotIndex);
 		} else if (actionType === 'wait') {
-			screenshotPath = await executeWait(tabId, sessionId, screenshotIndex);
+			actionResult = await executeWait(tabId, sessionId, screenshotIndex);
 		} else if (actionType === 'stop') {
+			// Stop uses the previous action's after screenshot as its before state
 			const lastAction = session.actions[session.actions.length - 1];
 			screenshotPath = lastAction?.screenshotPath ?? session.initialScreenshot;
+			currentScreenshot = screenshotPath;
+			url = lastAction?.url ?? session.url;
+			currentUrl = url;
 		} else if (actionType === 'newTab') {
 			const result = await createTab(targetUrl);
 			newTabId = result.tabId;
@@ -70,35 +79,54 @@ export const POST: RequestHandler = async ({ request }) => {
 				createdAt: new Date().toISOString()
 			};
 			await addTab(sessionId, newTab);
-			screenshotPath = await refreshScreenshot(newTabId, sessionId);
+			// For newTab, the before state is the previous tab's state
+			const lastAction = session.actions[session.actions.length - 1];
+			screenshotPath = lastAction?.screenshotPath ?? session.initialScreenshot;
+			url = lastAction?.url ?? session.url;
+			currentScreenshot = await refreshScreenshot(newTabId, sessionId);
+			currentUrl = getCurrentUrl(newTabId);
 		} else if (actionType === 'switchTab') {
 			if (!targetTabId) {
 				return badRequest('targetTabId required for switchTab action');
 			}
+			// Capture before state from current tab
+			screenshotPath = await refreshScreenshot(tabId, sessionId);
+			url = getCurrentUrl(tabId);
 			switchTab(targetTabId);
 			await setActiveTab(sessionId, targetTabId);
 			currentTabId = targetTabId;
-			screenshotPath = await refreshScreenshot(targetTabId, sessionId);
+			currentScreenshot = await refreshScreenshot(targetTabId, sessionId);
+			currentUrl = getCurrentUrl(targetTabId);
 		} else if (actionType === 'closeTab') {
 			if (!targetTabId) {
 				return badRequest('targetTabId required for closeTab action');
 			}
+			// Capture before state from tab being closed
+			screenshotPath = await refreshScreenshot(targetTabId, sessionId);
+			url = getCurrentUrl(targetTabId);
 			await closeTab(targetTabId);
 			const updatedSession = await closeTabInSession(sessionId, targetTabId);
 			currentTabId = updatedSession?.activeTabId ?? tabId;
 			// Screenshot the new active tab
 			if (currentTabId) {
-				screenshotPath = await refreshScreenshot(currentTabId, sessionId);
+				currentScreenshot = await refreshScreenshot(currentTabId, sessionId);
+				currentUrl = getCurrentUrl(currentTabId);
 			} else {
 				// No tabs left
-				const lastAction = session.actions[session.actions.length - 1];
-				screenshotPath = lastAction?.screenshotPath ?? session.initialScreenshot;
+				currentScreenshot = screenshotPath;
+				currentUrl = url;
 			}
 		} else {
 			return badRequest('Invalid action type');
 		}
 
-		const url = currentTabId ? getCurrentUrl(currentTabId) : '';
+		// For actions with ActionResult, extract before/after values
+		if (actionResult) {
+			screenshotPath = actionResult.beforeScreenshot;
+			currentScreenshot = actionResult.afterScreenshot;
+			url = actionResult.beforeUrl;
+			currentUrl = actionResult.afterUrl;
+		}
 
 		const action: Action = {
 			type: actionType,
@@ -119,7 +147,8 @@ export const POST: RequestHandler = async ({ request }) => {
 
 		return json({
 			session: updatedSession,
-			screenshotPath,
+			screenshotPath: currentScreenshot, // Return AFTER screenshot for UI
+			currentUrl, // Return AFTER URL for UI
 			completed: actionType === 'stop',
 			tabId: currentTabId,
 			newTabId

@@ -4,6 +4,7 @@
 
 	let copiedUrl: string | null = $state(null);
 	let expandedAction: Action | null = $state(null);
+	let expandedScreenshotSrc: string | null = $state(null);
 
 	function formatUrlParts(url: string): { line1: string; line2: string | null } {
 		const singleLineMax = 40; // URLs up to this length stay on one line (CSS handles overflow)
@@ -54,6 +55,8 @@
 	interface Props {
 		actions: Action[];
 		viewport?: { width: number; height: number };
+		currentScreenshot?: string | null;
+		currentUrl?: string | null;
 		replayedUpTo?: number;
 		onReplay?: (index: number) => void;
 		replayLoading?: boolean;
@@ -66,6 +69,8 @@
 	let {
 		actions,
 		viewport = { width: 1280, height: 800 },
+		currentScreenshot = null,
+		currentUrl = null,
 		replayedUpTo = -1,
 		onReplay,
 		replayLoading = false,
@@ -213,6 +218,45 @@
 				</div>
 			</div>
 		{/each}
+
+		{#if currentScreenshot}
+			<div class="action-item current-state">
+				<div class="action-top">
+					<span class="action-number">Now</span>
+				</div>
+				<button
+					class="screenshot-thumbnail"
+					onclick={() => expandedScreenshotSrc = currentScreenshot}
+					title="Click to enlarge"
+				>
+					<img src={currentScreenshot} alt="Current state" />
+				</button>
+				<div class="action-type">Current State</div>
+				<div class="action-explanation">Waiting for next action...</div>
+				<div class="action-url-container">
+					{#if currentUrl}
+						{@const urlParts = formatUrlParts(currentUrl)}
+						<a class="action-url" href={currentUrl} target="_blank" rel="noopener noreferrer" title={currentUrl}>
+							<span class="url-line">{urlParts.line1}</span>
+							{#if urlParts.line2}
+								<span class="url-line">{urlParts.line2}</span>
+							{/if}
+						</a>
+						<button
+							class="copy-url-btn"
+							onclick={() => copyUrl(currentUrl)}
+							title={copiedUrl === currentUrl ? 'Copied!' : 'Copy URL'}
+						>
+							{#if copiedUrl === currentUrl}
+								✓
+							{:else}
+								⧉
+							{/if}
+						</button>
+					{/if}
+				</div>
+			</div>
+		{/if}
 	</div>
 </div>
 
@@ -225,6 +269,19 @@
 				src={expandedAction.screenshotPath}
 				{viewport}
 				hoverInfo={actionToHoverInfo(expandedAction)}
+			/>
+		</div>
+	</div>
+{/if}
+
+{#if expandedScreenshotSrc}
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div class="screenshot-modal" onclick={() => expandedScreenshotSrc = null} onkeydown={(e) => e.key === 'Escape' && (expandedScreenshotSrc = null)}>
+		<button class="modal-close" onclick={() => expandedScreenshotSrc = null}>×</button>
+		<div class="modal-screenshot">
+			<ScreenshotViewer
+				src={expandedScreenshotSrc}
+				{viewport}
 			/>
 		</div>
 	</div>
@@ -280,7 +337,11 @@
 	.action-item.editing {
 		border-top-color: #8b5cf6;
 		box-shadow: 0 0 0 2px #ddd6fe;
-		background: #faf5ff;
+	}
+
+	.action-item.current-state {
+		border-top-color: #06b6d4;
+		background: #ecfeff;
 	}
 
 	.action-top {

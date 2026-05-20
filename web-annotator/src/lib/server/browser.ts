@@ -283,17 +283,28 @@ export async function navigateAndScreenshot(
 	return captureScreenshot(p, sessionId, '0');
 }
 
+export interface ActionResult {
+	beforeScreenshot: string;
+	afterScreenshot: string;
+	beforeUrl: string;
+	afterUrl: string;
+}
+
 export async function executeClick(
 	tabId: string,
 	x: number,
 	y: number,
 	sessionId: string,
 	actionIndex: number
-): Promise<string> {
+): Promise<ActionResult> {
 	const p = getPage(tabId);
+	const beforeScreenshot = await captureScreenshot(p, sessionId, `${actionIndex}-before`);
+	const beforeUrl = p.url();
 	await p.mouse.click(x, y);
 	await waitForPageStable(p);
-	return captureScreenshot(p, sessionId, String(actionIndex));
+	const afterScreenshot = await captureScreenshot(p, sessionId, `${actionIndex}-after`);
+	const afterUrl = p.url();
+	return { beforeScreenshot, afterScreenshot, beforeUrl, afterUrl };
 }
 
 export async function executeScroll(
@@ -301,12 +312,16 @@ export async function executeScroll(
 	direction: 'up' | 'down',
 	sessionId: string,
 	actionIndex: number
-): Promise<string> {
+): Promise<ActionResult> {
 	const p = getPage(tabId);
+	const beforeScreenshot = await captureScreenshot(p, sessionId, `${actionIndex}-before`);
+	const beforeUrl = p.url();
 	const scrollY = direction === 'down' ? browserConfig.scrollAmount : -browserConfig.scrollAmount;
 	await p.mouse.wheel(0, scrollY);
 	await waitForPageStable(p);
-	return captureScreenshot(p, sessionId, String(actionIndex));
+	const afterScreenshot = await captureScreenshot(p, sessionId, `${actionIndex}-after`);
+	const afterUrl = p.url();
+	return { beforeScreenshot, afterScreenshot, beforeUrl, afterUrl };
 }
 
 export async function executeType(
@@ -314,21 +329,29 @@ export async function executeType(
 	text: string,
 	sessionId: string,
 	actionIndex: number
-): Promise<string> {
+): Promise<ActionResult> {
 	const p = getPage(tabId);
+	const beforeScreenshot = await captureScreenshot(p, sessionId, `${actionIndex}-before`);
+	const beforeUrl = p.url();
 	await p.keyboard.type(text, { delay: browserConfig.typingDelay });
 	await waitForPageStable(p);
-	return captureScreenshot(p, sessionId, String(actionIndex));
+	const afterScreenshot = await captureScreenshot(p, sessionId, `${actionIndex}-after`);
+	const afterUrl = p.url();
+	return { beforeScreenshot, afterScreenshot, beforeUrl, afterUrl };
 }
 
 export async function executeWait(
 	tabId: string,
 	sessionId: string,
 	actionIndex: number
-): Promise<string> {
+): Promise<ActionResult> {
 	const p = getPage(tabId);
+	const beforeScreenshot = await captureScreenshot(p, sessionId, `${actionIndex}-before`);
+	const beforeUrl = p.url();
 	await waitForPageStable(p);
-	return captureScreenshot(p, sessionId, String(actionIndex));
+	const afterScreenshot = await captureScreenshot(p, sessionId, `${actionIndex}-after`);
+	const afterUrl = p.url();
+	return { beforeScreenshot, afterScreenshot, beforeUrl, afterUrl };
 }
 
 export async function replaySingleAction(
@@ -341,9 +364,14 @@ export async function replaySingleAction(
 	},
 	sessionId: string,
 	actionIndex: number
-): Promise<string> {
+): Promise<ActionResult> {
 	const p = getPage(tabId);
 
+	// Capture BEFORE state
+	const beforeScreenshot = await captureScreenshot(p, sessionId, `replay-${actionIndex}-before`);
+	const beforeUrl = p.url();
+
+	// Execute the action
 	if (action.type === 'click' && action.coordinates) {
 		await p.mouse.click(action.coordinates.x, action.coordinates.y);
 	} else if (action.type === 'scroll' && action.direction) {
@@ -355,7 +383,12 @@ export async function replaySingleAction(
 	// For 'wait' and 'stop' actions, just wait for page stability
 
 	await waitForPageStable(p);
-	return captureScreenshot(p, sessionId, `replay-${actionIndex}`);
+
+	// Capture AFTER state
+	const afterScreenshot = await captureScreenshot(p, sessionId, `replay-${actionIndex}-after`);
+	const afterUrl = p.url();
+
+	return { beforeScreenshot, afterScreenshot, beforeUrl, afterUrl };
 }
 
 export async function refreshScreenshot(tabId: string, sessionId: string): Promise<string> {
