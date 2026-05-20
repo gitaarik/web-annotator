@@ -41,9 +41,11 @@
 		| { type: 'type'; text: string }
 		| null;
 	let hoverInfo = $state<HoverInfo>(null);
+	let editingActionIndex = $state<number | null>(null);
 
 	let savedSessions = $state<SessionSummary[]>([]);
 	let loadingSessions = $state(true);
+	let loadingSessionId = $state<string | null>(null);
 
 	onMount(() => {
 		fetchSavedSessions();
@@ -89,6 +91,7 @@
 
 	async function resumeSession(id: string) {
 		loading = true;
+		loadingSessionId = id;
 		error = null;
 
 		try {
@@ -112,6 +115,7 @@
 			error = e instanceof Error ? e.message : 'An error occurred';
 		} finally {
 			loading = false;
+			loadingSessionId = null;
 		}
 	}
 
@@ -365,9 +369,16 @@
 						<div class="session-row">
 							<button
 								class="session-card"
+								class:loading={loadingSessionId === session.id}
 								onclick={() => resumeSession(session.id)}
 								disabled={loading}
 							>
+								{#if loadingSessionId === session.id}
+									<div class="loading-overlay">
+										<span class="spinner"></span>
+										<span>Loading...</span>
+									</div>
+								{/if}
 								<div class="session-url">{session.url}</div>
 								<div class="session-prompt">{session.prompt}</div>
 								<div class="session-meta">
@@ -607,6 +618,42 @@
 	.session-card:hover:not(:disabled) {
 		border-color: #0066cc;
 		background: #f8faff;
+	}
+
+	.session-card {
+		position: relative;
+	}
+
+	.session-card.loading {
+		border-color: #0066cc;
+	}
+
+	.loading-overlay {
+		position: absolute;
+		inset: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		background: rgba(255, 255, 255, 0.85);
+		border-radius: 6px;
+		color: #0066cc;
+		font-weight: 500;
+	}
+
+	.spinner {
+		width: 18px;
+		height: 18px;
+		border: 2px solid #e0e0e0;
+		border-top-color: #0066cc;
+		border-radius: 50%;
+		animation: spin 0.8s linear infinite;
+	}
+
+	@keyframes spin {
+		to {
+			transform: rotate(360deg);
+		}
 	}
 
 	.session-url {
