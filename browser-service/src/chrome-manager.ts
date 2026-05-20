@@ -253,8 +253,9 @@ export async function launchChrome(options: {
 		args.push('--no-sandbox', '--disable-dev-shm-usage');
 	}
 
-	// Enable WebGL with software rendering (Mesa llvmpipe)
-	if (process.env.LIBGL_ALWAYS_SOFTWARE === '1') {
+	// Enable WebGL with software rendering (Mesa llvmpipe / SwiftShader)
+	// This is CPU-intensive but helps avoid bot detection
+	if (process.env.SOFTWARE_WEBGL === 'true') {
 		args.push(
 			'--enable-webgl',
 			'--use-gl=angle',

@@ -61,9 +61,9 @@ ENV PORT=3001
 ENV CHROME_PATH=/usr/bin/chromium
 # Enable container-specific Chrome flags (--no-sandbox, --disable-dev-shm-usage)
 ENV CHROME_NO_SANDBOX=true
-# Force software rendering for WebGL (Mesa llvmpipe)
-ENV LIBGL_ALWAYS_SOFTWARE=1
-ENV GALLIUM_DRIVER=llvmpipe
+# Software WebGL rendering (CPU-intensive, disabled by default)
+# Set SOFTWARE_WEBGL=true to enable for better bot detection evasion
+ENV SOFTWARE_WEBGL=false
 
 # Expose the API port and noVNC port
 EXPOSE 3001 6080
