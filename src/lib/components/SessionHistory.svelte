@@ -44,6 +44,7 @@
 			text?: string;
 		} | null;
 		onActivate?: (index: number) => void;
+		screenshotVersion?: number;
 	}
 
 	let {
@@ -65,8 +66,18 @@
 		onNavigateTo,
 		navigatingIndex = null,
 		pendingActionPreview = null,
-		onActivate
+		onActivate,
+		screenshotVersion = 0
 	}: Props = $props();
+
+	// Add cache-busting query param to screenshot URLs
+	function versionedSrc(src: string): string;
+	function versionedSrc(src: string | null | undefined): string | null;
+	function versionedSrc(src: string | null | undefined): string | null {
+		if (!src) return null;
+		const separator = src.includes('?') ? '&' : '?';
+		return `${src}${separator}v=${screenshotVersion}`;
+	}
 
 	function canReplay(index: number): boolean {
 		// Can replay if it's the next action and there's no queued action yet
@@ -213,7 +224,7 @@
 						onclick={() => expandedAction = action}
 						title="Click to enlarge"
 					>
-						<img src={action.screenshotPath} alt="Screenshot for action {index}" />
+						<img src={versionedSrc(action.screenshotPath)} alt="Screenshot for action {index}" />
 						{#if action.type === 'click' && action.coordinates}
 							<div
 								class="thumbnail-click-marker"
@@ -385,7 +396,7 @@
 					onclick={() => expandedScreenshotSrc = currentScreenshot}
 					title="Click to enlarge"
 				>
-					<img src={currentScreenshot} alt="Current state" />
+					<img src={versionedSrc(currentScreenshot)} alt="Current state" />
 				</button>
 				<div class="action-type">Current State</div>
 				<div class="action-explanation">
@@ -447,7 +458,7 @@
 		<button class="modal-close" onclick={() => expandedAction = null}>×</button>
 		<div class="modal-screenshot">
 			<ScreenshotViewer
-				src={expandedAction.screenshotPath}
+				src={versionedSrc(expandedAction.screenshotPath)}
 				{viewport}
 				hoverInfo={actionToHoverInfo(expandedAction)}
 			/>
@@ -461,7 +472,7 @@
 		<button class="modal-close" onclick={() => expandedScreenshotSrc = null}>×</button>
 		<div class="modal-screenshot">
 			<ScreenshotViewer
-				src={expandedScreenshotSrc}
+				src={versionedSrc(expandedScreenshotSrc)}
 				{viewport}
 			/>
 		</div>
@@ -511,7 +522,7 @@
 									}}
 									title="Click to enlarge"
 								>
-									<img src={redirect.screenshotPath} alt="Redirect {i + 1}" />
+									<img src={versionedSrc(redirect.screenshotPath)} alt="Redirect {i + 1}" />
 								</button>
 							{/if}
 							<a

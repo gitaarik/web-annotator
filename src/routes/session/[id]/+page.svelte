@@ -66,6 +66,18 @@
 		text?: string;
 	} | null>(null);
 
+	// Cache-busting version for screenshot URLs (incremented when screenshots update)
+	let screenshotVersion = $state(Date.now());
+
+	// Add cache-busting query param to screenshot URLs
+	function versionedSrc(src: string): string;
+	function versionedSrc(src: string | null): string | null;
+	function versionedSrc(src: string | null): string | null {
+		if (!src) return null;
+		const separator = src.includes('?') ? '&' : '?';
+		return `${src}${separator}v=${screenshotVersion}`;
+	}
+
 	async function pollScreenshot() {
 		if (!session.id || !tabId) return;
 		try {
@@ -78,6 +90,9 @@
 			if (data.screenshotPath) {
 				const previousPath = screenshotPath;
 				screenshotPath = data.screenshotPath;
+
+				// Update cache-busting version when screenshot changes
+				screenshotVersion = Date.now();
 
 				// If indicator was hidden and screenshot changed, show late update flash
 				if (!showLoadingIndicator && actionLoading && previousPath !== data.screenshotPath) {
@@ -781,7 +796,7 @@
 			<p>Final answer: {actions[actions.length - 1]?.explanation}</p>
 
 			<svelte:boundary onerror={(e) => error = `History error: ${getErrorMessage(e)}`}>
-				<SessionHistory {actions} {viewport} currentScreenshot={screenshotPath} {currentUrl} onDelete={handleDeleteAction} {deletingIndex} />
+				<SessionHistory {actions} {viewport} currentScreenshot={screenshotPath} {currentUrl} onDelete={handleDeleteAction} {deletingIndex} {screenshotVersion} />
 				{#snippet failed()}
 					<div class="error">Failed to render session history. Please refresh the page.</div>
 				{/snippet}
@@ -834,6 +849,7 @@
 							{navigatingIndex}
 							{pendingActionPreview}
 							onActivate={handleActivate}
+							{screenshotVersion}
 						/>
 						{#snippet failed()}
 							<div class="error">Failed to render session history. Please refresh the page.</div>
@@ -860,7 +876,7 @@
 							{/if}
 							<svelte:boundary onerror={(e) => error = `Screenshot error: ${getErrorMessage(e)}`}>
 								<ScreenshotViewer
-									src={displayScreenshot}
+									src={versionedSrc(displayScreenshot)}
 									{viewport}
 									onclick={handleClick}
 									clickEnabled={selectedAction === 'click' || selectedAction === 'hover'}
