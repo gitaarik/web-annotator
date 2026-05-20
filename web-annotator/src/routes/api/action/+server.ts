@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { executeClick, executeScroll, executeType, executeWait } from '$lib/server/browser';
+import { executeClick, executeScroll, executeType, executeWait, getCurrentUrl } from '$lib/server/browser';
 import { addAction, getSession } from '$lib/server/storage';
 import type { Action } from '$lib/types';
 
@@ -48,11 +48,14 @@ export const POST: RequestHandler = async ({ request }) => {
 			return json({ error: 'Invalid action type' }, { status: 400 });
 		}
 
+		const url = await getCurrentUrl();
+
 		const action: Action = {
 			type: actionType,
 			explanation,
 			timestamp: new Date().toISOString(),
 			screenshotPath,
+			url,
 			...(actionType === 'click' && { coordinates }),
 			...(actionType === 'scroll' && { direction }),
 			...(actionType === 'type' && { text })

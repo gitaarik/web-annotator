@@ -141,6 +141,11 @@
 			screenshotPath = data.screenshotPath;
 			viewport = data.viewport;
 			replayedUpTo = index;
+
+			// Update actions with fresh data (screenshot, url)
+			if (data.session) {
+				actions = data.session.actions;
+			}
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'An error occurred';
 		} finally {

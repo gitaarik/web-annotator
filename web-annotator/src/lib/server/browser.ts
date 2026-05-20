@@ -321,6 +321,11 @@ export function getViewport() {
 	return VIEWPORT;
 }
 
+export async function getCurrentUrl(): Promise<string> {
+	const p = await getPage();
+	return p.url();
+}
+
 export async function initBrowser(): Promise<void> {
 	await getPage();
 	console.log('Browser initialized and ready');

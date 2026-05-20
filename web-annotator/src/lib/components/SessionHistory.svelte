@@ -126,6 +126,9 @@
 				</div>
 				<div class="action-type">{formatAction(action)}</div>
 				<div class="action-explanation">{action.explanation}</div>
+				{#if action.url}
+					<div class="action-url" title={action.url}>{action.url}</div>
+				{/if}
 			</div>
 		{/each}
 	</div>
@@ -215,6 +218,15 @@
 		display: -webkit-box;
 		-webkit-line-clamp: 2;
 		-webkit-box-orient: vertical;
+	}
+
+	.action-url {
+		font-size: 0.65rem;
+		color: #888;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		margin-top: 0.25rem;
 	}
 
 	.replay-action-btn {

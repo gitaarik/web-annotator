@@ -17,6 +17,7 @@ export interface Action {
 	direction?: 'up' | 'down';
 	text?: string;
 	screenshotPath: string;
+	url: string;
 }
 
 export interface ClickAction extends Action {
