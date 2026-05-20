@@ -192,11 +192,11 @@
 					<div class="action-buttons">
 						{#if onReplay}
 							<button
-								class="replay-action-btn"
+								class="play-action-btn"
 								class:loading={replayLoading && index === replayedUpTo + 1}
 								onclick={() => onReplay(index)}
 								disabled={!canReplay(index)}
-								title={isReplayed(index) ? 'Already replayed' : canReplay(index) ? 'Replay this action' : 'Replay previous actions first'}
+								title={isReplayed(index) ? 'Already played' : canReplay(index) ? 'Play action' : 'Play previous actions first'}
 							>
 								{#if replayLoading && index === replayedUpTo + 1}
 									<span class="spinner"></span>
@@ -448,7 +448,7 @@
 		color: #333;
 	}
 
-	.replay-action-btn {
+	.play-action-btn {
 		flex: 1;
 		padding: 0.4rem 0.5rem;
 		font-size: 0.85rem;
@@ -463,11 +463,11 @@
 		min-height: 28px;
 	}
 
-	.replay-action-btn:hover:not(:disabled) {
+	.play-action-btn:hover:not(:disabled) {
 		background: #047857;
 	}
 
-	.replay-action-btn:disabled {
+	.play-action-btn:disabled {
 		background: #ccc;
 		cursor: not-allowed;
 	}

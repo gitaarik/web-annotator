@@ -523,13 +523,23 @@
 							</div>
 						</div>
 					{:else if screenshotPath}
-						<ScreenshotViewer
-							src={screenshotPath}
-							{viewport}
-							onclick={handleClick}
-							clickEnabled={selectedAction === 'click'}
-							{hoverInfo}
-						/>
+						<div class="screenshot-wrapper">
+							<ScreenshotViewer
+								src={screenshotPath}
+								{viewport}
+								onclick={handleClick}
+								clickEnabled={selectedAction === 'click'}
+								{hoverInfo}
+							/>
+							{#if replayLoading || actionLoading}
+								<div class="screenshot-loading-overlay">
+									<div class="loading-content">
+										<span class="spinner"></span>
+										<span>Playing action...</span>
+									</div>
+								</div>
+							{/if}
+						</div>
 						<div class="screenshot-toolbar">
 							{#if clickCoordinates && selectedAction === 'click'}
 								<span class="coordinates">Selected: ({clickCoordinates.x}, {clickCoordinates.y})</span>
@@ -708,6 +718,28 @@
 
 	.screenshot-section {
 		overflow: auto;
+	}
+
+	.screenshot-wrapper {
+		position: relative;
+		display: inline-block;
+	}
+
+	.screenshot-loading-overlay {
+		position: absolute;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.5);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 4px;
+	}
+
+	.screenshot-loading-overlay .loading-content {
+		background: var(--color-bg-primary, #fff);
+		padding: var(--space-lg);
+		border-radius: var(--radius-lg);
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 	}
 
 	.screenshot-placeholder {
