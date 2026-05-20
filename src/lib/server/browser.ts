@@ -79,26 +79,39 @@ async function captureScreenshot(sessionId: string, filename: string): Promise<s
 /**
  * Creates a new tab, optionally navigating to a URL.
  * This launches or reconnects to Chrome in browser-service.
+ *
+ * @param url - URL to navigate to
+ * @param browserSessionId - Optional stable session ID for reconnection.
+ *   If provided, browser-service will reconnect to existing Chrome if still running.
  */
-export async function createTab(url?: string): Promise<{ tabId: string; url: string }> {
-	// Generate IDs
+export async function createTab(
+	url?: string,
+	browserSessionId?: string
+): Promise<{ tabId: string; url: string }> {
+	// Use provided browserSessionId or generate a new one
 	const tabId = generateTabId();
-	const sessionId = tabId; // Use tabId as sessionId for simplicity
+	const sessionId = browserSessionId || tabId;
 
 	// Launch or reconnect to Chrome via browser-service
-	await browserApi<{ success: boolean; isNew: boolean }>('POST', `/sessions/${sessionId}/launch`, {
-		url
-	});
+	const launchResult = await browserApi<{ success: boolean; isNew: boolean }>(
+		'POST',
+		`/sessions/${sessionId}/launch`,
+		{ url }
+	);
 
-	// Navigate if URL provided and it's an existing session
+	// Navigate if URL provided (skip if Chrome was just launched with the URL)
 	let currentUrl = url || 'about:blank';
-	if (url) {
+	if (url && !launchResult.isNew) {
 		const navResult = await browserApi<{ success: boolean; url: string }>(
 			'POST',
 			`/sessions/${sessionId}/navigate`,
 			{ url }
 		);
 		currentUrl = navResult.url;
+	} else if (url && launchResult.isNew) {
+		// Chrome was launched with URL, get actual URL (may have redirected)
+		const urlResult = await browserApi<{ url: string }>('GET', `/sessions/${sessionId}/url`);
+		currentUrl = urlResult.url;
 	}
 
 	// Track locally

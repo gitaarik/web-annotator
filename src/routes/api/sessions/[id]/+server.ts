@@ -33,7 +33,8 @@ export const POST: RequestHandler = async ({ params }) => {
 		const activeTab = openTabs.find((t) => t.id === session.activeTabId) ?? openTabs[0];
 
 		// Create a new browser tab for the active tab
-		const { tabId } = await createTab(activeTab?.url ?? session.url);
+		// Pass session.id as browserSessionId so page refresh reconnects to same Chrome
+		const { tabId } = await createTab(activeTab?.url ?? session.url, session.id);
 		const screenshotPath = await refreshScreenshot(tabId, session.id);
 		const viewport = getViewport();
 

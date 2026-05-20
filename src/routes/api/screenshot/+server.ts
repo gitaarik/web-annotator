@@ -16,7 +16,8 @@ export const POST: RequestHandler = async ({ request }) => {
 
 	try {
 		// Create a new tab and navigate to the URL
-		const { tabId } = await createTab(url);
+		// Pass sessionId so browser-service uses the same Chrome for this session
+		const { tabId } = await createTab(url, sessionId);
 		// Capture initial screenshot (createTab already navigated and waited for stability)
 		const screenshotPath = await refreshScreenshot(tabId, sessionId);
 		const session = await createSession(sessionId, url, prompt, plan, screenshotPath, tabId);

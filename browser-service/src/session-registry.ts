@@ -5,6 +5,8 @@
  * Reconnecting to a session returns the existing Chrome if still running.
  */
 
+import path from 'path';
+import os from 'os';
 import { launchChrome, isProcessRunning, type ChromeSession } from './chrome-manager.js';
 
 export interface SessionState {
@@ -44,11 +46,13 @@ export async function getOrCreateSession(
 		}
 	}
 
-	// Launch new Chrome
+	// Launch new Chrome with per-session user data directory
 	console.log(`[Session] Creating new session: ${sessionId}`);
+	const userDataDir = path.join(os.homedir(), '.browser-service', 'sessions', sessionId);
 	const chrome = await launchChrome({
 		headed: true,
-		startUrl: options?.url
+		startUrl: options?.url,
+		userDataDir
 	});
 
 	const session: SessionState = {
