@@ -5,6 +5,8 @@
 	"type": "module",
 	"scripts": {
 		"dev": "vite dev",
+		"dev:browser": "pnpm --filter browser-service start",
+		"dev:all": "pnpm dev:browser & sleep 2 && pnpm dev",
 		"build": "vite build",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
@@ -26,7 +28,6 @@
 		"vitest": "^4.1.7"
 	},
 	"dependencies": {
-		"playwright": "^1.60.0",
 		"uuid": "^14.0.0"
 	}
 }

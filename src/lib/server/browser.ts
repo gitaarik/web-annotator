@@ -1,16 +1,25 @@
-import { chromium, type Browser, type BrowserContext, type Page, type Frame } from 'playwright';
+/**
+ * Browser automation via browser-service HTTP API.
+ *
+ * This module interfaces with browser-service for Chrome management,
+ * OS-level input, and screenshots. Sessions are persisted in browser-service
+ * so page refreshes reconnect to the same Chrome instance.
+ */
+
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { browserConfig, inputConfig } from './config';
 import type { Redirect } from '$lib/types';
-import { isBrowserFocused, invalidateFocusCache } from './focus';
-import { osClick, osType } from './os-input';
 
-let browser: Browser | null = null;
-let context: BrowserContext | null = null;
+// browser-service API URL
+const BROWSER_SERVICE_URL = process.env.BROWSER_SERVICE_URL || 'http://127.0.0.1:3001';
 
-// Tab management: map of tabId -> Page
-const pages: Map<string, Page> = new Map();
+// Track active session for this web-annotator instance
+let activeSessionId: string | null = null;
+
+// Tab management: currently simplified to one tab per session
+// The tabId maps to the session in browser-service
+const tabs: Map<string, { sessionId: string; url: string }> = new Map();
 let activeTabId: string | null = null;
 
 function generateTabId(): string {
@@ -18,161 +27,137 @@ function generateTabId(): string {
 }
 
 /**
- * Captures a screenshot and saves it to the static screenshots directory.
- * Returns the public URL path to the screenshot.
+ * Call browser-service API.
  */
-async function captureScreenshot(
-	p: Page,
+async function browserApi<T>(
+	method: 'GET' | 'POST',
+	path: string,
+	body?: Record<string, unknown>
+): Promise<T> {
+	const url = `${BROWSER_SERVICE_URL}${path}`;
+	const options: RequestInit = {
+		method,
+		headers: { 'Content-Type': 'application/json' }
+	};
+	if (body) {
+		options.body = JSON.stringify(body);
+	}
+
+	const res = await fetch(url, options);
+	const data = await res.json();
+
+	if (!res.ok) {
+		throw new Error(data.error || `browser-service error: ${res.status}`);
+	}
+
+	return data as T;
+}
+
+/**
+ * Save a base64 screenshot to the static directory.
+ */
+async function saveScreenshot(
+	base64Data: string,
 	sessionId: string,
 	filename: string
 ): Promise<string> {
 	const screenshotDir = path.join(process.cwd(), 'static', 'screenshots', sessionId);
 	await fs.mkdir(screenshotDir, { recursive: true });
 	const screenshotPath = path.join(screenshotDir, `${filename}.png`);
-	await p.screenshot({ path: screenshotPath, fullPage: false });
+	await fs.writeFile(screenshotPath, Buffer.from(base64Data, 'base64'));
 	return `/screenshots/${sessionId}/${filename}.png`;
 }
 
-async function getBrowser(): Promise<Browser> {
-	if (!browser) {
-		browser = await chromium.launch({ headless: false });
-	}
-	return browser;
-}
-
-async function getContext(): Promise<BrowserContext> {
-	if (!context) {
-		const b = await getBrowser();
-		context = await b.newContext({ viewport: browserConfig.viewport });
-		// Invalidate focus cache when new browser context is created
-		invalidateFocusCache();
-	}
-	return context;
-}
-
 /**
- * Get browser window bounds via CDP for coordinate conversion.
- * Returns the window position and chrome bar height.
+ * Captures a screenshot via browser-service and saves it locally.
  */
-async function getWindowBounds(
-	page: Page
-): Promise<{ left: number; top: number; chromeBarHeight: number } | null> {
-	try {
-		const cdpSession = await page.context().newCDPSession(page);
-
-		// Get window bounds
-		const { bounds } = (await cdpSession.send('Browser.getWindowForTarget')) as {
-			bounds: { left: number; top: number; width: number; height: number };
-		};
-
-		// Get viewport height to calculate chrome bar
-		const { cssLayoutViewport } = (await cdpSession.send('Page.getLayoutMetrics')) as {
-			cssLayoutViewport: { clientHeight: number };
-		};
-
-		const chromeBarHeight = bounds.height - cssLayoutViewport.clientHeight;
-
-		await cdpSession.detach();
-
-		return {
-			left: bounds.left,
-			top: bounds.top,
-			chromeBarHeight
-		};
-	} catch {
-		return null;
-	}
-}
-
-/**
- * Convert viewport coordinates to screen coordinates for OS-level input.
- */
-async function viewportToScreen(
-	page: Page,
-	viewportX: number,
-	viewportY: number
-): Promise<{ x: number; y: number } | null> {
-	const bounds = await getWindowBounds(page);
-	if (!bounds) return null;
-
-	return {
-		x: bounds.left + viewportX,
-		y: bounds.top + bounds.chromeBarHeight + viewportY
-	};
+async function captureScreenshot(sessionId: string, filename: string): Promise<string> {
+	const result = await browserApi<{ data: string }>('GET', `/sessions/${sessionId}/screenshot`);
+	return saveScreenshot(result.data, sessionId, filename);
 }
 
 /**
  * Creates a new tab, optionally navigating to a URL.
- * Returns the new tab's ID.
+ * This launches or reconnects to Chrome in browser-service.
  */
 export async function createTab(url?: string): Promise<{ tabId: string; url: string }> {
-	const ctx = await getContext();
-	const page = await ctx.newPage();
+	// Generate IDs
 	const tabId = generateTabId();
+	const sessionId = tabId; // Use tabId as sessionId for simplicity
 
-	pages.set(tabId, page);
-	activeTabId = tabId;
+	// Launch or reconnect to Chrome via browser-service
+	await browserApi<{ success: boolean; isNew: boolean }>('POST', `/sessions/${sessionId}/launch`, {
+		url
+	});
 
+	// Navigate if URL provided and it's an existing session
+	let currentUrl = url || 'about:blank';
 	if (url) {
-		await page.goto(url, { waitUntil: 'load', timeout: browserConfig.navigationTimeout });
-		await waitForPageStable(page);
+		const navResult = await browserApi<{ success: boolean; url: string }>(
+			'POST',
+			`/sessions/${sessionId}/navigate`,
+			{ url }
+		);
+		currentUrl = navResult.url;
 	}
 
-	return { tabId, url: page.url() };
+	// Track locally
+	tabs.set(tabId, { sessionId, url: currentUrl });
+	activeTabId = tabId;
+	activeSessionId = sessionId;
+
+	return { tabId, url: currentUrl };
 }
 
 /**
  * Switches the active tab to the specified tab ID.
  */
 export function switchTab(tabId: string): void {
-	if (!pages.has(tabId)) {
+	if (!tabs.has(tabId)) {
 		throw new Error(`Tab ${tabId} not found`);
 	}
 	activeTabId = tabId;
+	activeSessionId = tabs.get(tabId)!.sessionId;
 }
 
 /**
  * Closes the specified tab.
  */
 export async function closeTab(tabId: string): Promise<void> {
-	const page = pages.get(tabId);
-	if (page) {
-		await page.close();
-		pages.delete(tabId);
+	const tab = tabs.get(tabId);
+	if (tab) {
+		await browserApi<{ success: boolean }>('POST', `/sessions/${tab.sessionId}/close`);
+		tabs.delete(tabId);
 	}
 	// Switch to another tab if we closed the active one
 	if (activeTabId === tabId) {
-		const remainingTabs = Array.from(pages.keys());
-		activeTabId = remainingTabs.length > 0 ? remainingTabs[0] : null;
+		const remainingTabs = Array.from(tabs.keys());
+		if (remainingTabs.length > 0) {
+			activeTabId = remainingTabs[0];
+			activeSessionId = tabs.get(activeTabId)!.sessionId;
+		} else {
+			activeTabId = null;
+			activeSessionId = null;
+		}
 	}
 }
 
 /**
- * Gets a specific page by tab ID.
+ * Gets the session ID for a tab.
  */
-export function getPage(tabId: string): Page {
-	const page = pages.get(tabId);
-	if (!page) {
+function getSessionId(tabId: string): string {
+	const tab = tabs.get(tabId);
+	if (!tab) {
 		throw new Error(`Tab ${tabId} not found`);
 	}
-	return page;
-}
-
-/**
- * Gets the currently active page.
- */
-export function getActivePage(): Page {
-	if (!activeTabId || !pages.has(activeTabId)) {
-		throw new Error('No active tab');
-	}
-	return pages.get(activeTabId)!;
+	return tab.sessionId;
 }
 
 /**
  * Returns a list of all open tab IDs.
  */
 export function listTabs(): string[] {
-	return Array.from(pages.keys());
+	return Array.from(tabs.keys());
 }
 
 /**
@@ -183,149 +168,32 @@ export function getActiveTabId(): string | null {
 }
 
 /**
- * Waits for the page load event with a timeout.
+ * Sleep for a given number of milliseconds.
  */
-async function waitForLoad(p: Page, timeout: number): Promise<void> {
-	try {
-		await p.waitForLoadState('load', { timeout });
-	} catch {
-		// Timeout is acceptable - continue
-	}
+function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
- * Waits for network to become idle (no requests for 500ms).
+ * Wait for page to stabilize by polling URL and checking for changes.
+ * This is a simplified version since browser-service handles most stability checks.
  */
-async function waitForNetworkIdle(p: Page, timeout: number): Promise<void> {
-	try {
-		await p.waitForLoadState('networkidle', { timeout });
-	} catch {
-		// Timeout is acceptable - some pages have persistent connections
-	}
-}
+async function waitForStable(sessionId: string): Promise<void> {
+	// Simple stability check: wait a bit, then verify no immediate redirects
+	await sleep(browserConfig.domStableTimeout);
 
-/**
- * Browser-side script that waits for DOM stability, fonts, and visible images.
- * This runs inside the browser context via page.evaluate().
- */
-function createDomStabilityScript() {
-	return ([stableTime, maxTime, imageTimeout]: readonly [number, number, number]) => {
-		return new Promise<void>((resolve) => {
-			const startTime = Date.now();
-			let timeoutId: ReturnType<typeof setTimeout>;
-			let resolved = false;
-
-			const finish = () => {
-				if (resolved) return;
-				resolved = true;
-				observer.disconnect();
-				clearTimeout(timeoutId);
-				resolve();
-			};
-
-			const isTimedOut = () => Date.now() - startTime > maxTime;
-
-			const observer = new MutationObserver(() => {
-				clearTimeout(timeoutId);
-				if (isTimedOut()) {
-					finish();
-					return;
-				}
-				timeoutId = setTimeout(finish, stableTime);
-			});
-
-			observer.observe(document.body, {
-				childList: true,
-				subtree: true,
-				attributes: true,
-				characterData: true
-			});
-
-			const fontsReady = document.fonts?.ready || Promise.resolve();
-
-			const imagesReady = new Promise<void>((imgResolve) => {
-				const visibleImages = Array.from(document.querySelectorAll('img'))
-					.filter((img) => {
-						const rect = img.getBoundingClientRect();
-						return rect.top < window.innerHeight && rect.bottom > 0;
-					})
-					.filter((img) => !img.complete);
-
-				if (visibleImages.length === 0) {
-					imgResolve();
-					return;
-				}
-
-				let loadedCount = 0;
-				const onImageLoaded = () => {
-					loadedCount++;
-					if (loadedCount >= visibleImages.length) imgResolve();
-				};
-
-				visibleImages.forEach((img) => {
-					img.addEventListener('load', onImageLoaded, { once: true });
-					img.addEventListener('error', onImageLoaded, { once: true });
-				});
-
-				setTimeout(imgResolve, imageTimeout);
-			});
-
-			Promise.all([fontsReady, imagesReady]).then(() => {
-				if (isTimedOut()) {
-					finish();
-					return;
-				}
-				timeoutId = setTimeout(finish, stableTime);
-			});
-
-			timeoutId = setTimeout(finish, stableTime);
-			setTimeout(finish, maxTime);
-		});
-	};
-}
-
-/**
- * Waits for two animation frames to let final paints settle.
- */
-async function waitForAnimationFrames(p: Page): Promise<void> {
-	try {
-		await p.evaluate(() => {
-			return new Promise<void>((resolve) => {
-				requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-			});
-		});
-	} catch {
-		// Continue if this fails
-	}
-}
-
-/**
- * Waits for the page to become stable by checking:
- * 1. Load event
- * 2. Network idle state
- * 3. DOM stability (no mutations for a period)
- * 4. Fonts and visible images loaded
- * 5. Animation frames settled
- */
-async function waitForPageStable(p: Page): Promise<void> {
+	// Post-action monitoring for delayed redirects
 	const startTime = Date.now();
-	const remainingTime = () => Math.max(0, browserConfig.maxWaitTimeout - (Date.now() - startTime));
+	let lastUrl = '';
 
-	await waitForLoad(p, remainingTime());
-	await waitForNetworkIdle(p, Math.min(browserConfig.networkIdleTimeout, remainingTime()));
-
-	try {
-		const domScript = createDomStabilityScript();
-		await p.evaluate(domScript, [
-			browserConfig.domStableTimeout,
-			remainingTime(),
-			browserConfig.imageLoadTimeout
-		] as const);
-	} catch {
-		// If evaluate fails, continue
+	while (Date.now() - startTime < browserConfig.postActionMonitorTimeout) {
+		const result = await browserApi<{ url: string }>('GET', `/sessions/${sessionId}/url`);
+		if (result.url === lastUrl) {
+			break; // URL stable
+		}
+		lastUrl = result.url;
+		await sleep(500);
 	}
-
-	await waitForAnimationFrames(p);
 }
 
 export async function navigateAndScreenshot(
@@ -333,10 +201,23 @@ export async function navigateAndScreenshot(
 	url: string,
 	sessionId: string
 ): Promise<string> {
-	const p = getPage(tabId);
-	await p.goto(url, { waitUntil: 'load', timeout: browserConfig.navigationTimeout });
-	await waitForPageStable(p);
-	return captureScreenshot(p, sessionId, '0');
+	const browserSessionId = getSessionId(tabId);
+
+	await browserApi<{ success: boolean; url: string }>(
+		'POST',
+		`/sessions/${browserSessionId}/navigate`,
+		{ url }
+	);
+	await waitForStable(browserSessionId);
+
+	// Update local URL tracking
+	const tab = tabs.get(tabId);
+	if (tab) {
+		const urlResult = await browserApi<{ url: string }>('GET', `/sessions/${browserSessionId}/url`);
+		tab.url = urlResult.url;
+	}
+
+	return captureScreenshot(browserSessionId, '0');
 }
 
 export interface ActionResult {
@@ -348,83 +229,49 @@ export interface ActionResult {
 }
 
 /**
- * Tracks navigation redirects during action execution.
- * Captures screenshots for pages that actually load (not instant HTTP redirects).
- * Also monitors for delayed redirects after the page appears stable.
+ * Track redirects during an action by monitoring URL changes.
  */
 async function withRedirectTracking(
-	page: Page,
 	sessionId: string,
+	screenshotSessionId: string,
 	actionIndex: number,
 	beforeUrl: string,
 	action: () => Promise<void>
 ): Promise<Redirect[]> {
 	const redirects: Redirect[] = [];
 	let redirectCounter = 0;
-	let navigationInProgress = false;
 
-	// Track each navigation
-	const onFrameNavigated = (frame: Frame) => {
-		if (frame !== page.mainFrame()) return;
-		const url = frame.url();
-		// Skip if same as before URL or last tracked redirect
-		if (url === beforeUrl) return;
-		if (redirects.length > 0 && url === redirects[redirects.length - 1].url) return;
-		// Skip about:blank and similar
-		if (url.startsWith('about:') || url.startsWith('chrome:')) return;
-		redirects.push({ url });
-		navigationInProgress = true;
-	};
+	await action();
+	await sleep(500); // Let navigation start
 
-	// Capture screenshot when page actually loads
-	const onLoad = async () => {
-		const url = page.url();
-		// Find the redirect entry for this URL and add screenshot
-		const redirect = redirects.find((r) => r.url === url && !r.screenshotPath);
-		if (redirect) {
-			try {
-				redirect.screenshotPath = await captureScreenshot(
-					page,
+	// Monitor for redirects
+	const startTime = Date.now();
+	let lastUrl = beforeUrl;
+
+	while (Date.now() - startTime < browserConfig.postActionMonitorTimeout) {
+		const result = await browserApi<{ url: string }>('GET', `/sessions/${sessionId}/url`);
+
+		if (result.url !== lastUrl && result.url !== beforeUrl) {
+			// New URL detected
+			if (!redirects.some((r) => r.url === result.url)) {
+				const screenshotPath = await captureScreenshot(
 					sessionId,
 					`${actionIndex}-redirect-${redirectCounter++}`
 				);
-			} catch {
-				// Screenshot failed, continue without it
+				redirects.push({ url: result.url, screenshotPath });
 			}
+			lastUrl = result.url;
 		}
-		navigationInProgress = false;
-	};
 
-	page.on('framenavigated', onFrameNavigated);
-	page.on('load', onLoad);
-
-	try {
-		await action();
-		await waitForPageStable(page);
-
-		// Post-action monitoring for delayed redirects
-		const monitorStart = Date.now();
-		const monitorTimeout = browserConfig.postActionMonitorTimeout;
-
-		while (Date.now() - monitorStart < monitorTimeout) {
-			// If a navigation just happened, wait for it to complete
-			if (navigationInProgress) {
-				await waitForPageStable(page);
-				// Reset the monitor timer after a navigation completes
-				continue;
-			}
-			// Check every 100ms
-			await new Promise((resolve) => setTimeout(resolve, 100));
-		}
-	} finally {
-		page.off('framenavigated', onFrameNavigated);
-		page.off('load', onLoad);
+		await sleep(200);
 	}
 
-	// Remove the final URL from redirects if it matches afterUrl
-	// (it will be shown as the action's result, not a redirect)
-	const afterUrl = page.url();
-	if (redirects.length > 0 && redirects[redirects.length - 1].url === afterUrl) {
+	// Wait for final stability
+	await waitForStable(sessionId);
+
+	// Remove the final URL from redirects if it will be the afterUrl
+	const finalResult = await browserApi<{ url: string }>('GET', `/sessions/${sessionId}/url`);
+	if (redirects.length > 0 && redirects[redirects.length - 1].url === finalResult.url) {
 		redirects.pop();
 	}
 
@@ -438,29 +285,33 @@ export async function executeClick(
 	sessionId: string,
 	actionIndex: number
 ): Promise<ActionResult> {
-	const p = getPage(tabId);
-	const beforeScreenshot = await captureScreenshot(p, sessionId, `${actionIndex}-before`);
-	const beforeUrl = p.url();
+	const browserSessionId = getSessionId(tabId);
+	const beforeScreenshot = await captureScreenshot(browserSessionId, `${actionIndex}-before`);
+	const beforeUrl = (await browserApi<{ url: string }>('GET', `/sessions/${browserSessionId}/url`))
+		.url;
 
-	const redirects = await withRedirectTracking(p, sessionId, actionIndex, beforeUrl, async () => {
-		// Try OS-level click if enabled and browser is focused
-		if (inputConfig.useOsInput) {
-			const screenCoords = await viewportToScreen(p, x, y);
-			if (screenCoords && (await isBrowserFocused())) {
-				try {
-					await osClick(screenCoords.x, screenCoords.y);
-					return;
-				} catch {
-					// Fall through to CDP on error
-				}
-			}
+	const redirects = await withRedirectTracking(
+		browserSessionId,
+		sessionId,
+		actionIndex,
+		beforeUrl,
+		async () => {
+			await browserApi<{ success: boolean }>('POST', `/sessions/${browserSessionId}/click`, {
+				x,
+				y,
+				button: 'left'
+			});
 		}
-		// CDP fallback (default)
-		await p.mouse.click(x, y);
-	});
+	);
 
-	const afterScreenshot = await captureScreenshot(p, sessionId, `${actionIndex}-after`);
-	const afterUrl = p.url();
+	const afterScreenshot = await captureScreenshot(browserSessionId, `${actionIndex}-after`);
+	const afterUrl = (await browserApi<{ url: string }>('GET', `/sessions/${browserSessionId}/url`))
+		.url;
+
+	// Update local URL tracking
+	const tab = tabs.get(tabId);
+	if (tab) tab.url = afterUrl;
+
 	return { beforeScreenshot, afterScreenshot, beforeUrl, afterUrl, redirects };
 }
 
@@ -470,17 +321,29 @@ export async function executeScroll(
 	sessionId: string,
 	actionIndex: number
 ): Promise<ActionResult> {
-	const p = getPage(tabId);
-	const beforeScreenshot = await captureScreenshot(p, sessionId, `${actionIndex}-before`);
-	const beforeUrl = p.url();
-	const scrollY = direction === 'down' ? browserConfig.scrollAmount : -browserConfig.scrollAmount;
+	const browserSessionId = getSessionId(tabId);
+	const beforeScreenshot = await captureScreenshot(browserSessionId, `${actionIndex}-before`);
+	const beforeUrl = (await browserApi<{ url: string }>('GET', `/sessions/${browserSessionId}/url`))
+		.url;
 
-	const redirects = await withRedirectTracking(p, sessionId, actionIndex, beforeUrl, async () => {
-		await p.mouse.wheel(0, scrollY);
-	});
+	const deltaY = direction === 'down' ? browserConfig.scrollAmount : -browserConfig.scrollAmount;
 
-	const afterScreenshot = await captureScreenshot(p, sessionId, `${actionIndex}-after`);
-	const afterUrl = p.url();
+	const redirects = await withRedirectTracking(
+		browserSessionId,
+		sessionId,
+		actionIndex,
+		beforeUrl,
+		async () => {
+			await browserApi<{ success: boolean }>('POST', `/sessions/${browserSessionId}/scroll`, {
+				deltaY
+			});
+		}
+	);
+
+	const afterScreenshot = await captureScreenshot(browserSessionId, `${actionIndex}-after`);
+	const afterUrl = (await browserApi<{ url: string }>('GET', `/sessions/${browserSessionId}/url`))
+		.url;
+
 	return { beforeScreenshot, afterScreenshot, beforeUrl, afterUrl, redirects };
 }
 
@@ -490,29 +353,28 @@ export async function executeType(
 	sessionId: string,
 	actionIndex: number
 ): Promise<ActionResult> {
-	const p = getPage(tabId);
-	const beforeScreenshot = await captureScreenshot(p, sessionId, `${actionIndex}-before`);
-	const beforeUrl = p.url();
+	const browserSessionId = getSessionId(tabId);
+	const beforeScreenshot = await captureScreenshot(browserSessionId, `${actionIndex}-before`);
+	const beforeUrl = (await browserApi<{ url: string }>('GET', `/sessions/${browserSessionId}/url`))
+		.url;
 
-	const redirects = await withRedirectTracking(p, sessionId, actionIndex, beforeUrl, async () => {
-		// Try OS-level typing if enabled and browser is focused
-		if (inputConfig.useOsInput && (await isBrowserFocused())) {
-			try {
-				await osType(text, {
-					charDelayMs: inputConfig.charDelayMs,
-					charDelayVariance: inputConfig.charDelayVariance
-				});
-				return;
-			} catch {
-				// Fall through to CDP on error
-			}
+	const redirects = await withRedirectTracking(
+		browserSessionId,
+		sessionId,
+		actionIndex,
+		beforeUrl,
+		async () => {
+			await browserApi<{ success: boolean }>('POST', `/sessions/${browserSessionId}/type`, {
+				text,
+				charDelayMs: inputConfig.charDelayMs
+			});
 		}
-		// CDP fallback (default)
-		await p.keyboard.type(text, { delay: browserConfig.typingDelay });
-	});
+	);
 
-	const afterScreenshot = await captureScreenshot(p, sessionId, `${actionIndex}-after`);
-	const afterUrl = p.url();
+	const afterScreenshot = await captureScreenshot(browserSessionId, `${actionIndex}-after`);
+	const afterUrl = (await browserApi<{ url: string }>('GET', `/sessions/${browserSessionId}/url`))
+		.url;
+
 	return { beforeScreenshot, afterScreenshot, beforeUrl, afterUrl, redirects };
 }
 
@@ -521,17 +383,19 @@ export async function executeWait(
 	sessionId: string,
 	actionIndex: number
 ): Promise<ActionResult> {
-	const p = getPage(tabId);
-	const beforeScreenshot = await captureScreenshot(p, sessionId, `${actionIndex}-before`);
-	const beforeUrl = p.url();
+	const browserSessionId = getSessionId(tabId);
+	const beforeScreenshot = await captureScreenshot(browserSessionId, `${actionIndex}-before`);
+	const beforeUrl = (await browserApi<{ url: string }>('GET', `/sessions/${browserSessionId}/url`))
+		.url;
 
-	const redirects = await withRedirectTracking(p, sessionId, actionIndex, beforeUrl, async () => {
-		// Wait action: no immediate action, just wait for stability
-	});
+	// Wait action: just wait for stability
+	await waitForStable(browserSessionId);
 
-	const afterScreenshot = await captureScreenshot(p, sessionId, `${actionIndex}-after`);
-	const afterUrl = p.url();
-	return { beforeScreenshot, afterScreenshot, beforeUrl, afterUrl, redirects };
+	const afterScreenshot = await captureScreenshot(browserSessionId, `${actionIndex}-after`);
+	const afterUrl = (await browserApi<{ url: string }>('GET', `/sessions/${browserSessionId}/url`))
+		.url;
+
+	return { beforeScreenshot, afterScreenshot, beforeUrl, afterUrl, redirects: [] };
 }
 
 export async function replaySingleAction(
@@ -545,97 +409,87 @@ export async function replaySingleAction(
 	sessionId: string,
 	actionIndex: number
 ): Promise<ActionResult> {
-	const p = getPage(tabId);
+	const browserSessionId = getSessionId(tabId);
 
 	// Capture BEFORE state
-	const beforeScreenshot = await captureScreenshot(p, sessionId, `replay-${actionIndex}-before`);
-	const beforeUrl = p.url();
+	const beforeScreenshot = await captureScreenshot(
+		browserSessionId,
+		`replay-${actionIndex}-before`
+	);
+	const beforeUrl = (await browserApi<{ url: string }>('GET', `/sessions/${browserSessionId}/url`))
+		.url;
 
 	// Execute the action with redirect tracking
 	const redirects = await withRedirectTracking(
-		p,
+		browserSessionId,
 		sessionId,
 		actionIndex,
 		beforeUrl,
 		async () => {
 			if (action.type === 'click' && action.coordinates) {
-				// Try OS-level click if enabled and browser is focused
-				if (inputConfig.useOsInput) {
-					const screenCoords = await viewportToScreen(
-						p,
-						action.coordinates.x,
-						action.coordinates.y
-					);
-					if (screenCoords && (await isBrowserFocused())) {
-						try {
-							await osClick(screenCoords.x, screenCoords.y);
-							return;
-						} catch {
-							// Fall through to CDP on error
-						}
-					}
-				}
-				await p.mouse.click(action.coordinates.x, action.coordinates.y);
+				await browserApi<{ success: boolean }>('POST', `/sessions/${browserSessionId}/click`, {
+					x: action.coordinates.x,
+					y: action.coordinates.y,
+					button: 'left'
+				});
 			} else if (action.type === 'scroll' && action.direction) {
-				const scrollY =
-					action.direction === 'down' ? browserConfig.scrollAmount : -browserConfig.scrollAmount;
-				await p.mouse.wheel(0, scrollY);
+				const deltaY =
+					action.direction === 'down'
+						? browserConfig.scrollAmount
+						: -browserConfig.scrollAmount;
+				await browserApi<{ success: boolean }>('POST', `/sessions/${browserSessionId}/scroll`, {
+					deltaY
+				});
 			} else if (action.type === 'type' && action.text) {
-				// Try OS-level typing if enabled and browser is focused
-				if (inputConfig.useOsInput && (await isBrowserFocused())) {
-					try {
-						await osType(action.text, {
-							charDelayMs: inputConfig.charDelayMs,
-							charDelayVariance: inputConfig.charDelayVariance
-						});
-						return;
-					} catch {
-						// Fall through to CDP on error
-					}
-				}
-				await p.keyboard.type(action.text, { delay: browserConfig.typingDelay });
+				await browserApi<{ success: boolean }>('POST', `/sessions/${browserSessionId}/type`, {
+					text: action.text,
+					charDelayMs: inputConfig.charDelayMs
+				});
 			}
 			// For 'wait' and 'stop' actions, just wait for page stability
 		}
 	);
 
 	// Capture AFTER state
-	const afterScreenshot = await captureScreenshot(p, sessionId, `replay-${actionIndex}-after`);
-	const afterUrl = p.url();
+	const afterScreenshot = await captureScreenshot(browserSessionId, `replay-${actionIndex}-after`);
+	const afterUrl = (await browserApi<{ url: string }>('GET', `/sessions/${browserSessionId}/url`))
+		.url;
 
 	return { beforeScreenshot, afterScreenshot, beforeUrl, afterUrl, redirects };
 }
 
 export async function refreshScreenshot(tabId: string, sessionId: string): Promise<string> {
-	const p = getPage(tabId);
+	const browserSessionId = getSessionId(tabId);
 	const timestamp = Date.now();
-	return captureScreenshot(p, sessionId, `refresh-${timestamp}`);
+	return captureScreenshot(browserSessionId, `refresh-${timestamp}`);
 }
 
 export async function closeBrowser(): Promise<void> {
-	// Close all pages
-	for (const page of pages.values()) {
-		await page.close();
+	// Close all sessions via browser-service
+	for (const tab of tabs.values()) {
+		try {
+			await browserApi<{ success: boolean }>('POST', `/sessions/${tab.sessionId}/close`);
+		} catch {
+			// Ignore errors on close
+		}
 	}
-	pages.clear();
+	tabs.clear();
 	activeTabId = null;
-
-	// Close context and browser
-	if (context) {
-		await context.close();
-		context = null;
-	}
-	if (browser) {
-		await browser.close();
-		browser = null;
-	}
+	activeSessionId = null;
 }
 
 export function getViewport() {
 	return browserConfig.viewport;
 }
 
-export function getCurrentUrl(tabId: string): string {
-	const p = getPage(tabId);
-	return p.url();
+export async function getCurrentUrl(tabId: string): Promise<string> {
+	const browserSessionId = getSessionId(tabId);
+	const result = await browserApi<{ url: string }>('GET', `/sessions/${browserSessionId}/url`);
+	return result.url;
+}
+
+// Legacy sync version for backward compatibility
+export function getCurrentUrlSync(tabId: string): string {
+	const tab = tabs.get(tabId);
+	return tab?.url || 'about:blank';
 }

@@ -53,8 +53,8 @@ export type BrowserConfig = typeof browserConfig;
  * When enabled, uses real OS events (xdotool/osascript/SendKeys) instead of CDP.
  */
 export const inputConfig = {
-	/** Enable OS-level input (USE_OS_INPUT=true to enable, default: false) */
-	useOsInput: process.env.USE_OS_INPUT === 'true',
+	/** Enable OS-level input (USE_OS_INPUT=false to disable, default: true) */
+	useOsInput: process.env.USE_OS_INPUT !== 'false',
 
 	/** Base delay between keystrokes in ms */
 	charDelayMs: getEnvNumber('CHAR_DELAY_MS', 50),

@@ -12,7 +12,7 @@ export const GET: RequestHandler = async () => {
 		if (!tabId) {
 			return json({ url: null, tabId: null });
 		}
-		const url = getCurrentUrl(tabId);
+		const url = await getCurrentUrl(tabId);
 		return json({ url, tabId });
 	} catch {
 		return json({ url: null, tabId: null });
@@ -32,7 +32,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 	try {
 		const screenshotPath = await refreshScreenshot(tabId, params.id);
 		const viewport = getViewport();
-		const currentUrl = getCurrentUrl(tabId);
+		const currentUrl = await getCurrentUrl(tabId);
 
 		return json({ screenshotPath, viewport, tabId, currentUrl });
 	} catch (error) {

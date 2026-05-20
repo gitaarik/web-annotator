@@ -84,33 +84,33 @@ export const POST: RequestHandler = async ({ request }) => {
 			screenshotPath = lastAction?.screenshotPath ?? session.initialScreenshot;
 			url = lastAction?.url ?? session.url;
 			currentScreenshot = await refreshScreenshot(newTabId, sessionId);
-			currentUrl = getCurrentUrl(newTabId);
+			currentUrl = await getCurrentUrl(newTabId);
 		} else if (actionType === 'switchTab') {
 			if (!targetTabId) {
 				return badRequest('targetTabId required for switchTab action');
 			}
 			// Capture before state from current tab
 			screenshotPath = await refreshScreenshot(tabId, sessionId);
-			url = getCurrentUrl(tabId);
+			url = await getCurrentUrl(tabId);
 			switchTab(targetTabId);
 			await setActiveTab(sessionId, targetTabId);
 			currentTabId = targetTabId;
 			currentScreenshot = await refreshScreenshot(targetTabId, sessionId);
-			currentUrl = getCurrentUrl(targetTabId);
+			currentUrl = await getCurrentUrl(targetTabId);
 		} else if (actionType === 'closeTab') {
 			if (!targetTabId) {
 				return badRequest('targetTabId required for closeTab action');
 			}
 			// Capture before state from tab being closed
 			screenshotPath = await refreshScreenshot(targetTabId, sessionId);
-			url = getCurrentUrl(targetTabId);
+			url = await getCurrentUrl(targetTabId);
 			await closeTab(targetTabId);
 			const updatedSession = await closeTabInSession(sessionId, targetTabId);
 			currentTabId = updatedSession?.activeTabId ?? tabId;
 			// Screenshot the new active tab
 			if (currentTabId) {
 				currentScreenshot = await refreshScreenshot(currentTabId, sessionId);
-				currentUrl = getCurrentUrl(currentTabId);
+				currentUrl = await getCurrentUrl(currentTabId);
 			} else {
 				// No tabs left
 				currentScreenshot = screenshotPath;
