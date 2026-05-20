@@ -109,7 +109,7 @@
 								{/if}
 							</button>
 						{/if}
-						{#if onDelete}
+						{#if onDelete && index === actions.length - 1}
 							<button
 								class="delete-action-btn"
 								onclick={() => onDelete(index)}
