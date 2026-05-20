@@ -4,8 +4,8 @@ import * as path from 'path';
 
 const VIEWPORT = { width: 1280, height: 800 };
 const SCROLL_AMOUNT = 400;
-const DOM_STABLE_TIMEOUT = 500; // Time with no mutations to consider DOM stable
-const MAX_WAIT_TIMEOUT = 10000; // Max time to wait for page stability
+const DOM_STABLE_TIMEOUT = 750; // Time with no mutations to consider DOM stable (increased from 500)
+const MAX_WAIT_TIMEOUT = 15000; // Max time to wait for page stability
 
 let browser: Browser | null = null;
 let page: Page | null = null;
@@ -27,37 +27,55 @@ async function getPage(): Promise<Page> {
 }
 
 async function waitForPageStable(p: Page): Promise<void> {
+	const startTime = Date.now();
+	const remainingTime = () => Math.max(0, MAX_WAIT_TIMEOUT - (Date.now() - startTime));
+
+	// 1. Wait for load event
 	try {
-		// First ensure the page has fired its load event
-		await p.waitForLoadState('load', { timeout: MAX_WAIT_TIMEOUT });
+		await p.waitForLoadState('load', { timeout: remainingTime() });
 	} catch {
-		// Timeout is ok - continue to DOM stability check
+		// Timeout is ok - continue
 	}
 
-	// Then wait for DOM stability - no mutations for DOM_STABLE_TIMEOUT ms
+	// 2. Wait for network idle (no requests for 500ms)
+	// This catches AJAX/fetch requests that fire after load
+	try {
+		await p.waitForLoadState('networkidle', { timeout: Math.min(5000, remainingTime()) });
+	} catch {
+		// Timeout is ok - some pages have persistent connections
+	}
+
+	// 3. Wait for fonts and images, plus DOM stability
 	try {
 		await p.evaluate(
 			([stableTime, maxTime]) => {
 				return new Promise<void>((resolve) => {
-					let timeoutId: ReturnType<typeof setTimeout>;
 					const startTime = Date.now();
+					let timeoutId: ReturnType<typeof setTimeout>;
+					let resolved = false;
+
+					const finish = () => {
+						if (resolved) return;
+						resolved = true;
+						observer.disconnect();
+						clearTimeout(timeoutId);
+						resolve();
+					};
+
+					// Check if we've exceeded max wait time
+					const checkMaxTime = () => {
+						if (Date.now() - startTime > maxTime) {
+							finish();
+							return true;
+						}
+						return false;
+					};
 
 					const observer = new MutationObserver(() => {
-						// Reset the timer on each mutation
 						clearTimeout(timeoutId);
+						if (checkMaxTime()) return;
 
-						// Check if we've exceeded max wait time
-						if (Date.now() - startTime > maxTime) {
-							observer.disconnect();
-							resolve();
-							return;
-						}
-
-						// Wait for stability period with no mutations
-						timeoutId = setTimeout(() => {
-							observer.disconnect();
-							resolve();
-						}, stableTime);
+						timeoutId = setTimeout(finish, stableTime);
 					});
 
 					observer.observe(document.body, {
@@ -67,17 +85,71 @@ async function waitForPageStable(p: Page): Promise<void> {
 						characterData: true
 					});
 
-					// Initial timeout in case there are no mutations at all
-					timeoutId = setTimeout(() => {
-						observer.disconnect();
-						resolve();
-					}, stableTime);
+					// Wait for fonts to load
+					const fontsReady = document.fonts?.ready || Promise.resolve();
+
+					// Wait for visible images to load
+					const imagesReady = new Promise<void>((imgResolve) => {
+						const images = Array.from(document.querySelectorAll('img'))
+							.filter((img) => {
+								const rect = img.getBoundingClientRect();
+								return rect.top < window.innerHeight && rect.bottom > 0;
+							})
+							.filter((img) => !img.complete);
+
+						if (images.length === 0) {
+							imgResolve();
+							return;
+						}
+
+						let loadedCount = 0;
+						const checkDone = () => {
+							loadedCount++;
+							if (loadedCount >= images.length) imgResolve();
+						};
+
+						images.forEach((img) => {
+							img.addEventListener('load', checkDone, { once: true });
+							img.addEventListener('error', checkDone, { once: true });
+						});
+
+						// Don't wait forever for images
+						setTimeout(imgResolve, 3000);
+					});
+
+					// Combine all checks
+					Promise.all([fontsReady, imagesReady]).then(() => {
+						if (checkMaxTime()) return;
+						// After fonts/images, still wait for DOM stability
+						timeoutId = setTimeout(finish, stableTime);
+					});
+
+					// Initial timeout in case there are no mutations
+					timeoutId = setTimeout(finish, stableTime);
+
+					// Absolute max timeout
+					setTimeout(finish, maxTime);
 				});
 			},
-			[DOM_STABLE_TIMEOUT, MAX_WAIT_TIMEOUT] as const
+			[DOM_STABLE_TIMEOUT, remainingTime()] as const
 		);
 	} catch {
 		// If evaluate fails, just continue
+	}
+
+	// 4. Wait a couple of animation frames to let any final paints settle
+	try {
+		await p.evaluate(() => {
+			return new Promise<void>((resolve) => {
+				requestAnimationFrame(() => {
+					requestAnimationFrame(() => {
+						resolve();
+					});
+				});
+			});
+		});
+	} catch {
+		// Continue if this fails
 	}
 }
 
@@ -216,6 +288,22 @@ export async function replaySingleAction(
 	await p.screenshot({ path: screenshotPath, fullPage: false });
 
 	return `/screenshots/${sessionId}/replay-${actionIndex}.png`;
+}
+
+export async function refreshScreenshot(sessionId: string): Promise<string> {
+	const p = await getPage();
+
+	const screenshotPath = path.join(
+		process.cwd(),
+		'static',
+		'screenshots',
+		sessionId,
+		`refresh-${Date.now()}.png`
+	);
+	await fs.mkdir(path.dirname(screenshotPath), { recursive: true });
+	await p.screenshot({ path: screenshotPath, fullPage: false });
+
+	return `/screenshots/${sessionId}/refresh-${Date.now()}.png`;
 }
 
 export async function closeBrowser(): Promise<void> {

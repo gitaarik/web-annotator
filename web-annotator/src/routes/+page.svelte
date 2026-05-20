@@ -35,6 +35,7 @@
 	let replayedUpTo = $state(-1);
 	let replayLoading = $state(false);
 	let deleteLoading = $state(false);
+	let refreshLoading = $state(false);
 	type HoverInfo =
 		| { type: 'click'; coordinates: { x: number; y: number } }
 		| { type: 'scroll'; direction: 'up' | 'down' }
@@ -144,6 +145,31 @@
 			error = e instanceof Error ? e.message : 'An error occurred';
 		} finally {
 			replayLoading = false;
+		}
+	}
+
+	async function handleRefreshScreenshot() {
+		if (!sessionId) return;
+
+		refreshLoading = true;
+		error = null;
+
+		try {
+			const response = await fetch(`/api/sessions/${sessionId}/refresh`, {
+				method: 'POST'
+			});
+			const data = await response.json();
+
+			if (!response.ok) {
+				throw new Error(data.error || 'Failed to refresh screenshot');
+			}
+
+			screenshotPath = data.screenshotPath;
+			viewport = data.viewport;
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'An error occurred';
+		} finally {
+			refreshLoading = false;
 		}
 	}
 
@@ -500,6 +526,21 @@
 				</details>
 			</div>
 
+			{#if actions.length > 0}
+				<div class="history-section">
+					<SessionHistory
+						{actions}
+						{replayedUpTo}
+						onReplay={handleReplayAction}
+						{replayLoading}
+						onDelete={handleDeleteAction}
+						{deleteLoading}
+						onHoverAction={(info) => (hoverInfo = info)}
+						editingIndex={editingActionIndex}
+					/>
+				</div>
+			{/if}
+
 			<div class="main-content">
 				<div class="screenshot-section">
 					{#if screenshotPath}
@@ -510,9 +551,19 @@
 							clickEnabled={selectedAction === 'click'}
 							{hoverInfo}
 						/>
-						{#if clickCoordinates && selectedAction === 'click'}
-							<p class="coordinates">Selected: ({clickCoordinates.x}, {clickCoordinates.y})</p>
-						{/if}
+						<div class="screenshot-toolbar">
+							{#if clickCoordinates && selectedAction === 'click'}
+								<span class="coordinates">Selected: ({clickCoordinates.x}, {clickCoordinates.y})</span>
+							{/if}
+							<button
+								class="refresh-btn"
+								onclick={handleRefreshScreenshot}
+								disabled={refreshLoading}
+								title="Refresh screenshot"
+							>
+								{refreshLoading ? '...' : '↻'} Refresh
+							</button>
+						</div>
 					{/if}
 				</div>
 
@@ -549,21 +600,6 @@
 					{/if}
 				</div>
 			</div>
-
-			{#if actions.length > 0}
-				<div class="history-section">
-					<SessionHistory
-						{actions}
-						{replayedUpTo}
-						onReplay={handleReplayAction}
-						{replayLoading}
-						onDelete={handleDeleteAction}
-						{deleteLoading}
-						onHoverAction={(info) => (hoverInfo = info)}
-						editingIndex={editingActionIndex}
-					/>
-				</div>
-			{/if}
 		</section>
 	{/if}
 </main>
@@ -812,9 +848,39 @@
 		overflow: auto;
 	}
 
-	.coordinates {
+	.screenshot-toolbar {
 		margin-top: 0.5rem;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+	}
+
+	.refresh-btn {
+		padding: 0.4rem 0.75rem;
+		font-size: 0.85rem;
+		background: #f3f4f6;
+		color: #374151;
+		border: 1px solid #d1d5db;
+		border-radius: 6px;
+		cursor: pointer;
+		transition: all 0.2s;
+		margin-left: auto;
+	}
+
+	.refresh-btn:hover:not(:disabled) {
+		background: #e5e7eb;
+		border-color: #9ca3af;
+	}
+
+	.refresh-btn:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+
+	.coordinates {
 		font-family: monospace;
+		font-size: 0.85rem;
 		color: #666;
 	}
 
@@ -844,9 +910,9 @@
 	}
 
 	.history-section {
-		margin-top: 1.5rem;
-		padding-top: 1.5rem;
-		border-top: 1px solid #eee;
+		margin-bottom: 1.5rem;
+		padding-bottom: 1.5rem;
+		border-bottom: 1px solid #eee;
 	}
 
 	.completed {
