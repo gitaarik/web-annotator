@@ -104,15 +104,27 @@ export class CdpClient {
 
 			this.ws.on('error', (err) => {
 				console.error('[CDP] WebSocket error:', err.message);
+				this.rejectAllPending(new Error(`WebSocket error: ${err.message}`));
 				reject(err);
 			});
 
 			this.ws.on('close', () => {
 				console.log('[CDP] Connection closed');
+				this.rejectAllPending(new Error('WebSocket connection closed'));
 				this.ws = null;
 				this.pageWsUrl = null;
 			});
 		});
+	}
+
+	/**
+	 * Reject all pending requests (called on connection close/error).
+	 */
+	private rejectAllPending(error: Error): void {
+		for (const [id, pending] of this.pendingRequests) {
+			pending.reject(error);
+		}
+		this.pendingRequests.clear();
 	}
 
 	/**
@@ -126,8 +138,15 @@ export class CdpClient {
 
 	/**
 	 * Send a CDP command and wait for response.
+	 * @param method CDP method name
+	 * @param params Method parameters
+	 * @param timeout Timeout in ms (default: 30000)
 	 */
-	async send(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
+	async send(
+		method: string,
+		params: Record<string, unknown> = {},
+		timeout = 30000
+	): Promise<unknown> {
 		await this.ensureConnected();
 
 		const id = ++this.messageId;
@@ -136,13 +155,13 @@ export class CdpClient {
 		return new Promise((resolve, reject) => {
 			this.pendingRequests.set(id, { resolve, reject });
 
-			// Timeout after 30 seconds
+			// Timeout
 			setTimeout(() => {
 				if (this.pendingRequests.has(id)) {
 					this.pendingRequests.delete(id);
 					reject(new Error(`CDP timeout: ${method}`));
 				}
-			}, 30000);
+			}, timeout);
 
 			this.ws!.send(message);
 		});
@@ -331,13 +350,32 @@ export class CdpClient {
 	/**
 	 * Capture a screenshot.
 	 * Returns base64-encoded PNG data.
+	 * Includes retry logic for transient failures (e.g., connection issues).
 	 */
 	async screenshot(options?: { format?: 'png' | 'jpeg'; quality?: number }): Promise<string> {
-		const result = await this.send('Page.captureScreenshot', {
-			format: options?.format || 'png',
-			quality: options?.quality
-		}) as { data: string };
-		return result.data;
+		const maxRetries = 3;
+		let lastError: Error | null = null;
+
+		for (let attempt = 1; attempt <= maxRetries; attempt++) {
+			try {
+				const result = (await this.send('Page.captureScreenshot', {
+					format: options?.format || 'png',
+					quality: options?.quality
+				})) as { data: string };
+				return result.data;
+			} catch (err) {
+				lastError = err instanceof Error ? err : new Error(String(err));
+				console.log(
+					`[CDP] Screenshot attempt ${attempt}/${maxRetries} failed: ${lastError.message}`
+				);
+				if (attempt < maxRetries) {
+					// Wait briefly then retry (connection may need to reconnect)
+					await new Promise((resolve) => setTimeout(resolve, 300));
+				}
+			}
+		}
+
+		throw lastError || new Error('Screenshot failed after retries');
 	}
 
 	/**
