@@ -1,11 +1,11 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { listSessions, importSession } from '$lib/server/storage';
+import { badRequest, errorResponse } from '$lib/server/api-utils';
 
 export const GET: RequestHandler = async () => {
 	const sessions = await listSessions();
 
-	// Return summary info for each session
 	const summaries = sessions.map((s) => ({
 		id: s.id,
 		url: s.url,
@@ -23,7 +23,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		const session = await request.json();
 
 		if (!session.url || !session.prompt || !session.actions) {
-			return json({ error: 'Invalid session data' }, { status: 400 });
+			return badRequest('Invalid session data');
 		}
 
 		const imported = await importSession(session);
@@ -40,6 +40,6 @@ export const POST: RequestHandler = async ({ request }) => {
 			}
 		});
 	} catch {
-		return json({ error: 'Failed to import session' }, { status: 500 });
+		return errorResponse('Failed to import session');
 	}
 };

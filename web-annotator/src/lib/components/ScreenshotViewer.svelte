@@ -1,9 +1,5 @@
 <script lang="ts">
-	type HoverInfo =
-		| { type: 'click'; coordinates: { x: number; y: number } }
-		| { type: 'scroll'; direction: 'up' | 'down' }
-		| { type: 'type'; text: string }
-		| null;
+	import type { HoverInfo } from '$lib/types';
 
 	interface Props {
 		src: string;

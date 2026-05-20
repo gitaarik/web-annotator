@@ -4,16 +4,10 @@
 	import ActionPanel from '$lib/components/ActionPanel.svelte';
 	import ExplanationInput from '$lib/components/ExplanationInput.svelte';
 	import SessionHistory from '$lib/components/SessionHistory.svelte';
-	import type { Action } from '$lib/types';
-
-	interface SessionSummary {
-		id: string;
-		url: string;
-		prompt: string;
-		createdAt: string;
-		actionCount: number;
-		isCompleted: boolean;
-	}
+	import SetupForm from '$lib/components/SetupForm.svelte';
+	import SavedSessionsList from '$lib/components/SavedSessionsList.svelte';
+	import { type Action, type SessionSummary, type HoverInfo, formatAction } from '$lib/types';
+	import { apiRequest, getErrorMessage } from '$lib/api';
 
 	let url = $state('');
 	let prompt = $state('');
@@ -36,11 +30,6 @@
 	let replayLoading = $state(false);
 	let deleteLoading = $state(false);
 	let refreshLoading = $state(false);
-	type HoverInfo =
-		| { type: 'click'; coordinates: { x: number; y: number } }
-		| { type: 'scroll'; direction: 'up' | 'down' }
-		| { type: 'type'; text: string }
-		| null;
 	let hoverInfo = $state<HoverInfo>(null);
 	let editingActionIndex = $state<number | null>(null);
 
@@ -54,10 +43,7 @@
 
 	async function fetchSavedSessions() {
 		try {
-			const response = await fetch('/api/sessions');
-			if (response.ok) {
-				savedSessions = await response.json();
-			}
+			savedSessions = await apiRequest<SessionSummary[]>('/api/sessions');
 		} catch {
 			// Ignore errors fetching sessions
 		} finally {
@@ -73,20 +59,10 @@
 		}
 
 		try {
-			const response = await fetch(`/api/sessions/${session.id}`, {
-				method: 'DELETE',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({})
-			});
-
-			if (!response.ok) {
-				const data = await response.json();
-				throw new Error(data.error || 'Failed to delete session');
-			}
-
+			await apiRequest(`/api/sessions/${session.id}`, { method: 'DELETE', body: {} });
 			savedSessions = savedSessions.filter((s) => s.id !== session.id);
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'An error occurred';
+			error = getErrorMessage(e);
 		}
 	}
 
@@ -96,12 +72,11 @@
 		error = null;
 
 		try {
-			const response = await fetch(`/api/sessions/${id}`, { method: 'POST' });
-			const data = await response.json();
-
-			if (!response.ok) {
-				throw new Error(data.error || 'Failed to resume session');
-			}
+			const data = await apiRequest<{
+				session: { id: string; url: string; prompt: string; plan: string; actions: Action[] };
+				screenshotPath: string;
+				viewport: { width: number; height: number };
+			}>(`/api/sessions/${id}`, { method: 'POST' });
 
 			sessionId = data.session.id;
 			url = data.session.url;
@@ -113,7 +88,7 @@
 			isCompleted = false;
 			replayedUpTo = -1;
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'An error occurred';
+			error = getErrorMessage(e);
 		} finally {
 			loading = false;
 			loadingSessionId = null;
@@ -127,27 +102,24 @@
 		error = null;
 
 		try {
-			const response = await fetch(`/api/sessions/${sessionId}/replay`, {
+			const data = await apiRequest<{
+				screenshotPath: string;
+				viewport: { width: number; height: number };
+				session?: { actions: Action[] };
+			}>(`/api/sessions/${sessionId}/replay`, {
 				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ actionIndex: index })
+				body: { actionIndex: index }
 			});
-			const data = await response.json();
-
-			if (!response.ok) {
-				throw new Error(data.error || 'Failed to replay action');
-			}
 
 			screenshotPath = data.screenshotPath;
 			viewport = data.viewport;
 			replayedUpTo = index;
 
-			// Update actions with fresh data (screenshot, url)
 			if (data.session) {
 				actions = data.session.actions;
 			}
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'An error occurred';
+			error = getErrorMessage(e);
 		} finally {
 			replayLoading = false;
 		}
@@ -157,24 +129,19 @@
 		if (!sessionId) return;
 
 		try {
-			const response = await fetch(`/api/sessions/${sessionId}`);
-			const data = await response.json();
-
-			if (!response.ok) {
-				throw new Error(data.error || 'Failed to fetch session');
-			}
+			const data = await apiRequest<{ session: unknown }>(`/api/sessions/${sessionId}`);
 
 			const blob = new Blob([JSON.stringify(data.session, null, 2)], { type: 'application/json' });
-			const url = URL.createObjectURL(blob);
+			const downloadUrl = URL.createObjectURL(blob);
 			const a = document.createElement('a');
-			a.href = url;
+			a.href = downloadUrl;
 			a.download = `session-${sessionId}.json`;
 			document.body.appendChild(a);
 			a.click();
 			document.body.removeChild(a);
-			URL.revokeObjectURL(url);
+			URL.revokeObjectURL(downloadUrl);
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'An error occurred';
+			error = getErrorMessage(e);
 		}
 	}
 
@@ -190,25 +157,15 @@
 			const text = await file.text();
 			const sessionData = JSON.parse(text);
 
-			const response = await fetch('/api/sessions', {
+			const data = await apiRequest<{ summary: SessionSummary }>('/api/sessions', {
 				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify(sessionData)
+				body: sessionData
 			});
 
-			const data = await response.json();
-
-			if (!response.ok) {
-				throw new Error(data.error || 'Failed to import session');
-			}
-
-			// Add to saved sessions list and refresh
 			savedSessions = [data.summary, ...savedSessions];
-
-			// Reset file input
 			input.value = '';
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'An error occurred';
+			error = getErrorMessage(e);
 		} finally {
 			loading = false;
 		}
@@ -221,19 +178,15 @@
 		error = null;
 
 		try {
-			const response = await fetch(`/api/sessions/${sessionId}/refresh`, {
-				method: 'POST'
-			});
-			const data = await response.json();
-
-			if (!response.ok) {
-				throw new Error(data.error || 'Failed to refresh screenshot');
-			}
+			const data = await apiRequest<{
+				screenshotPath: string;
+				viewport: { width: number; height: number };
+			}>(`/api/sessions/${sessionId}/refresh`, { method: 'POST' });
 
 			screenshotPath = data.screenshotPath;
 			viewport = data.viewport;
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'An error occurred';
+			error = getErrorMessage(e);
 		} finally {
 			refreshLoading = false;
 		}
@@ -243,17 +196,7 @@
 		if (!sessionId || index < 0 || index >= actions.length) return;
 
 		const action = actions[index];
-		const actionDesc = action.type === 'click'
-			? `Click at (${action.coordinates?.x}, ${action.coordinates?.y})`
-			: action.type === 'scroll'
-			? `Scroll ${action.direction}`
-			: action.type === 'type'
-			? `Type "${action.text}"`
-			: action.type === 'wait'
-			? 'Wait'
-			: 'Stop';
-
-		if (!confirm(`Delete action #${index + 1}: ${actionDesc}?`)) {
+		if (!confirm(`Delete action #${index + 1}: ${formatAction(action)}?`)) {
 			return;
 		}
 
@@ -261,26 +204,18 @@
 		error = null;
 
 		try {
-			const response = await fetch(`/api/sessions/${sessionId}`, {
-				method: 'DELETE',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ actionIndex: index })
-			});
-			const data = await response.json();
-
-			if (!response.ok) {
-				throw new Error(data.error || 'Failed to delete action');
-			}
+			const data = await apiRequest<{
+				session: { actions: Action[]; finalAnswer?: string };
+			}>(`/api/sessions/${sessionId}/actions/${index}`, { method: 'DELETE' });
 
 			actions = data.session.actions;
 			isCompleted = !!data.session.finalAnswer;
 
-			// Reset replayedUpTo if we deleted an action at or before the current replay point
 			if (index <= replayedUpTo) {
 				replayedUpTo = index - 1;
 			}
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'An error occurred';
+			error = getErrorMessage(e);
 		} finally {
 			deleteLoading = false;
 		}
@@ -308,27 +243,15 @@
 		}
 
 		try {
-			const response = await fetch(`/api/sessions/${sessionId}`, {
-				method: 'PATCH',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					actionIndex: editingActionIndex,
-					action: actionUpdate
-				})
-			});
-
-			const data = await response.json();
-
-			if (!response.ok) {
-				throw new Error(data.error || 'Failed to update action');
-			}
+			const data = await apiRequest<{ session: { actions: Action[] } }>(
+				`/api/sessions/${sessionId}/actions/${editingActionIndex}`,
+				{ method: 'PATCH', body: actionUpdate }
+			);
 
 			actions = data.session.actions;
-
-			// Run the action after updating
 			await handleReplayAction(editingActionIndex);
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'An error occurred';
+			error = getErrorMessage(e);
 		} finally {
 			loading = false;
 		}
@@ -344,24 +267,18 @@
 		error = null;
 
 		try {
-			const response = await fetch('/api/screenshot', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ url, prompt, plan })
-			});
-
-			const data = await response.json();
-
-			if (!response.ok) {
-				throw new Error(data.error || 'Failed to start session');
-			}
+			const data = await apiRequest<{
+				sessionId: string;
+				screenshotPath: string;
+				viewport: { width: number; height: number };
+			}>('/api/screenshot', { method: 'POST', body: { url, prompt, plan } });
 
 			sessionId = data.sessionId;
 			screenshotPath = data.screenshotPath;
 			viewport = data.viewport;
 			actions = [];
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'An error occurred';
+			error = getErrorMessage(e);
 		} finally {
 			loading = false;
 		}
@@ -393,36 +310,32 @@
 		error = null;
 
 		try {
-			const response = await fetch('/api/action', {
+			const data = await apiRequest<{
+				screenshotPath: string;
+				session: { actions: Action[] };
+				completed: boolean;
+			}>('/api/action', {
 				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
+				body: {
 					sessionId,
 					actionType: selectedAction,
 					explanation,
 					coordinates: clickCoordinates,
 					direction: scrollDirection,
 					text: typeText
-				})
+				}
 			});
-
-			const data = await response.json();
-
-			if (!response.ok) {
-				throw new Error(data.error || 'Failed to execute action');
-			}
 
 			screenshotPath = data.screenshotPath;
 			actions = data.session.actions;
 			isCompleted = data.completed;
 
-			// Reset form
 			selectedAction = null;
 			explanation = '';
 			clickCoordinates = null;
 			typeText = '';
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'An error occurred';
+			error = getErrorMessage(e);
 		} finally {
 			loading = false;
 		}
@@ -494,92 +407,26 @@
 	{/if}
 
 	{#if !sessionId}
-		<section class="setup-form">
-			<h2>Start New Annotation Session</h2>
-
-			<div class="form-group">
-				<label for="url">URL</label>
-				<input
-					id="url"
-					type="url"
-					bind:value={url}
-					placeholder="https://example.com"
-					disabled={loading}
-				/>
-			</div>
-
-			<div class="form-group">
-				<label for="prompt">Task Prompt</label>
-				<textarea
-					id="prompt"
-					bind:value={prompt}
-					placeholder="What task should be accomplished on this webpage?"
-					rows="3"
-					disabled={loading}
-				></textarea>
-			</div>
-
-			<div class="form-group">
-				<label for="plan">Plan</label>
-				<textarea
-					id="plan"
-					bind:value={plan}
-					placeholder="Describe your strategy for completing this task step by step..."
-					rows="4"
-					disabled={loading}
-				></textarea>
-			</div>
-
-			<button onclick={startSession} disabled={loading || !url || !prompt || !plan}>
-				{loading ? 'Loading...' : 'Start Session'}
-			</button>
-		</section>
+		<SetupForm
+			{url}
+			{prompt}
+			{plan}
+			{loading}
+			onUrlChange={(v) => (url = v)}
+			onPromptChange={(v) => (prompt = v)}
+			onPlanChange={(v) => (plan = v)}
+			onSubmit={startSession}
+		/>
 
 		{#if !loadingSessions}
-			<section class="saved-sessions">
-				<div class="sessions-header">
-					<h2>Saved Sessions</h2>
-					<label class="import-btn">
-						↑ Import
-						<input type="file" accept=".json" onchange={handleImportSession} hidden disabled={loading} />
-					</label>
-				</div>
-				{#if savedSessions.length > 0}
-				<div class="sessions-list">
-					{#each savedSessions.filter(s => !s.isCompleted) as session}
-						<div class="session-row">
-							<button
-								class="session-card"
-								class:loading={loadingSessionId === session.id}
-								onclick={() => resumeSession(session.id)}
-								disabled={loading}
-							>
-								{#if loadingSessionId === session.id}
-									<div class="loading-overlay">
-										<span class="spinner"></span>
-										<span>Loading...</span>
-									</div>
-								{/if}
-								<div class="session-url">{session.url}</div>
-								<div class="session-prompt">{session.prompt}</div>
-								<div class="session-meta">
-									<span>{session.actionCount} actions</span>
-									<span>{new Date(session.createdAt).toLocaleDateString()}</span>
-								</div>
-							</button>
-							<button
-								class="delete-session-btn"
-								onclick={(e) => handleDeleteSession(session, e)}
-								disabled={loading}
-								title="Delete session"
-							>
-								×
-							</button>
-						</div>
-					{/each}
-				</div>
-				{/if}
-			</section>
+			<SavedSessionsList
+				sessions={savedSessions}
+				{loading}
+				{loadingSessionId}
+				onResume={resumeSession}
+				onDelete={handleDeleteSession}
+				onImport={handleImportSession}
+			/>
 		{/if}
 	{:else if isCompleted}
 		<section class="completed">
@@ -691,253 +538,69 @@
 </main>
 
 <style>
-	:global(body) {
-		font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-		margin: 0;
-		padding: 0;
-		background: #f0f2f5;
-	}
-
 	main {
 		max-width: 1400px;
 		margin: 0 auto;
-		padding: 2rem;
+		padding: var(--space-2xl);
 	}
 
 	h1 {
-		margin: 0 0 2rem 0;
-		color: #1a1a1a;
+		margin: 0 0 var(--space-2xl) 0;
+		color: var(--color-text-primary);
 	}
 
 	h2 {
-		margin: 0 0 1.5rem 0;
+		margin: 0 0 var(--space-xl) 0;
 		font-size: 1.25rem;
 	}
 
 	.error {
-		background: #fee;
-		color: #c00;
-		padding: 1rem;
-		border-radius: 6px;
-		margin-bottom: 1rem;
-	}
-
-	.setup-form {
-		max-width: 600px;
-		background: white;
-		padding: 2rem;
-		border-radius: 12px;
-		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-	}
-
-	.form-group {
-		margin-bottom: 1.5rem;
-	}
-
-	.form-group label {
-		display: block;
-		margin-bottom: 0.5rem;
-		font-weight: 600;
-	}
-
-	.form-group input,
-	.form-group textarea {
-		width: 100%;
-		padding: 0.75rem;
-		border: 2px solid #ddd;
-		border-radius: 6px;
-		font-size: 1rem;
-		font-family: inherit;
-		box-sizing: border-box;
-	}
-
-	.form-group input:focus,
-	.form-group textarea:focus {
-		outline: none;
-		border-color: #0066cc;
+		background: var(--color-error-bg);
+		color: var(--color-error-text);
+		padding: var(--space-lg);
+		border-radius: var(--radius-md);
+		margin-bottom: var(--space-lg);
 	}
 
 	button {
-		background: #0066cc;
+		background: var(--color-primary);
 		color: white;
 		border: none;
-		padding: 0.75rem 1.5rem;
-		border-radius: 6px;
+		padding: var(--space-md) var(--space-xl);
+		border-radius: var(--radius-md);
 		font-size: 1rem;
 		cursor: pointer;
 		transition: background 0.2s;
 	}
 
 	button:hover:not(:disabled) {
-		background: #0052a3;
+		background: var(--color-primary-hover);
 	}
 
 	button:disabled {
-		background: #ccc;
+		background: var(--color-disabled);
 		cursor: not-allowed;
 	}
 
-	.saved-sessions {
-		max-width: 600px;
-		margin-top: 2rem;
-	}
-
-	.sessions-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		margin-bottom: 1rem;
-	}
-
-	.sessions-header h2 {
-		margin: 0;
-	}
-
-	.import-btn {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.25rem;
-		padding: 0.5rem 1rem;
-		font-size: 0.9rem;
-		background: #f3f4f6;
-		color: #374151;
-		border: 1px solid #d1d5db;
-		border-radius: 6px;
-		cursor: pointer;
-		transition: all 0.2s;
-	}
-
-	.import-btn:hover {
-		background: #e5e7eb;
-		border-color: #9ca3af;
-	}
-
-	.sessions-list {
-		display: flex;
-		flex-direction: column;
-		gap: 0.75rem;
-	}
-
-	.session-row {
-		display: flex;
-		gap: 0.5rem;
-		align-items: stretch;
-	}
-
-	.delete-session-btn {
-		padding: 0 0.75rem;
-		font-size: 1.25rem;
-		background: #dc2626;
-		color: white;
-		border: none;
-		border-radius: 8px;
-		cursor: pointer;
-		font-weight: bold;
-		flex-shrink: 0;
-	}
-
-	.delete-session-btn:hover:not(:disabled) {
-		background: #b91c1c;
-	}
-
-	.session-card {
-		display: block;
-		width: 100%;
-		text-align: left;
-		background: white;
-		color: #1a1a1a;
-		padding: 1rem;
-		border: 2px solid #ddd;
-		border-radius: 8px;
-		cursor: pointer;
-		transition: all 0.2s;
-	}
-
-	.session-card:hover:not(:disabled) {
-		border-color: #0066cc;
-		background: #f8faff;
-	}
-
-	.session-card {
-		position: relative;
-	}
-
-	.session-card.loading {
-		border-color: #0066cc;
-	}
-
-	.loading-overlay {
-		position: absolute;
-		inset: 0;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		gap: 0.5rem;
-		background: rgba(255, 255, 255, 0.85);
-		border-radius: 6px;
-		color: #0066cc;
-		font-weight: 500;
-	}
-
-	.spinner {
-		width: 18px;
-		height: 18px;
-		border: 2px solid #e0e0e0;
-		border-top-color: #0066cc;
-		border-radius: 50%;
-		animation: spin 0.8s linear infinite;
-	}
-
-	@keyframes spin {
-		to {
-			transform: rotate(360deg);
-		}
-	}
-
-	.session-url {
-		font-size: 0.85rem;
-		color: #666;
-		margin-bottom: 0.25rem;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.session-prompt {
-		font-weight: 500;
-		margin-bottom: 0.5rem;
-		display: -webkit-box;
-		-webkit-line-clamp: 2;
-		-webkit-box-orient: vertical;
-		overflow: hidden;
-	}
-
-	.session-meta {
-		display: flex;
-		gap: 1rem;
-		font-size: 0.8rem;
-		color: #888;
-	}
-
 	.annotation-interface {
-		background: white;
-		padding: 2rem;
-		border-radius: 12px;
-		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+		background: var(--color-bg-white);
+		padding: var(--space-2xl);
+		border-radius: var(--radius-xl);
+		box-shadow: var(--shadow-card);
 	}
 
 	.task-info {
-		margin-bottom: 1.5rem;
-		padding-bottom: 1rem;
-		border-bottom: 1px solid #eee;
+		margin-bottom: var(--space-xl);
+		padding-bottom: var(--space-lg);
+		border-bottom: 1px solid var(--color-border-light);
 	}
 
 	.task-info p {
-		margin: 0.25rem 0;
+		margin: var(--space-xs) 0;
 	}
 
 	.plan-details {
-		margin-top: 0.5rem;
+		margin-top: var(--space-sm);
 	}
 
 	.plan-details summary {
@@ -946,10 +609,10 @@
 	}
 
 	.plan-text {
-		margin: 0.5rem 0 0 0;
-		padding: 0.75rem;
-		background: #f5f5f5;
-		border-radius: 6px;
+		margin: var(--space-sm) 0 0 0;
+		padding: var(--space-md);
+		background: var(--color-bg-tertiary);
+		border-radius: var(--radius-md);
 		font-size: 0.9rem;
 		white-space: pre-wrap;
 	}
@@ -957,7 +620,7 @@
 	.main-content {
 		display: grid;
 		grid-template-columns: 1fr 350px;
-		gap: 2rem;
+		gap: var(--space-2xl);
 	}
 
 	.screenshot-section {
@@ -965,33 +628,33 @@
 	}
 
 	.screenshot-toolbar {
-		margin-top: 0.5rem;
+		margin-top: var(--space-sm);
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		gap: 1rem;
+		gap: var(--space-lg);
 	}
 
 	.toolbar-buttons {
 		display: flex;
-		gap: 0.5rem;
+		gap: var(--space-sm);
 		margin-left: auto;
 	}
 
 	.toolbar-btn {
-		padding: 0.4rem 0.75rem;
+		padding: 0.4rem var(--space-md);
 		font-size: 0.85rem;
-		background: #f3f4f6;
-		color: #374151;
-		border: 1px solid #d1d5db;
-		border-radius: 6px;
+		background: var(--color-bg-tertiary);
+		color: var(--color-text-secondary);
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-md);
 		cursor: pointer;
 		transition: all 0.2s;
 	}
 
 	.toolbar-btn:hover:not(:disabled) {
-		background: #e5e7eb;
-		border-color: #9ca3af;
+		background: var(--color-bg-secondary);
+		border-color: var(--color-border-hover);
 	}
 
 	.toolbar-btn:disabled {
@@ -1002,55 +665,55 @@
 	.coordinates {
 		font-family: monospace;
 		font-size: 0.85rem;
-		color: #666;
+		color: var(--color-text-muted);
 	}
 
 	.controls-section {
 		display: flex;
 		flex-direction: column;
-		gap: 1rem;
+		gap: var(--space-lg);
 	}
 
 	.execute-btn {
 		width: 100%;
-		padding: 1rem;
+		padding: var(--space-lg);
 		font-size: 1.1rem;
 		font-weight: 600;
 	}
 
 	.update-btn {
 		width: 100%;
-		padding: 1rem;
+		padding: var(--space-lg);
 		font-size: 1.1rem;
 		font-weight: 600;
-		background: #8b5cf6;
+		background: var(--color-purple);
 	}
 
 	.update-btn:hover:not(:disabled) {
-		background: #7c3aed;
+		background: var(--color-purple-hover);
 	}
 
 	.history-section {
-		margin-bottom: 1.5rem;
-		padding-bottom: 1.5rem;
-		border-bottom: 1px solid #eee;
+		margin-bottom: var(--space-xl);
+		padding-bottom: var(--space-xl);
+		border-bottom: 1px solid var(--color-border-light);
 	}
 
 	.completed {
-		background: white;
-		padding: 2rem;
-		border-radius: 12px;
-		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+		background: var(--color-bg-white);
+		padding: var(--space-2xl);
+		border-radius: var(--radius-xl);
+		box-shadow: var(--shadow-card);
 	}
 
 	.completed code {
-		background: #f5f5f5;
-		padding: 0.25rem 0.5rem;
-		border-radius: 4px;
+		background: var(--color-bg-tertiary);
+		padding: var(--space-xs) var(--space-sm);
+		border-radius: var(--radius-sm);
 		font-family: monospace;
 	}
 
 	.completed button {
-		margin-top: 1rem;
+		margin-top: var(--space-lg);
 	}
 </style>

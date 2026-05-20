@@ -1,14 +1,34 @@
-import { chromium, type Browser, type Page } from 'playwright';
+import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
 import * as fs from 'fs/promises';
 import * as path from 'path';
-
-const VIEWPORT = { width: 1280, height: 800 };
-const SCROLL_AMOUNT = 400;
-const DOM_STABLE_TIMEOUT = 750; // Time with no mutations to consider DOM stable (increased from 500)
-const MAX_WAIT_TIMEOUT = 15000; // Max time to wait for page stability
+import { browserConfig } from './config';
 
 let browser: Browser | null = null;
-let page: Page | null = null;
+let context: BrowserContext | null = null;
+
+// Tab management: map of tabId -> Page
+const pages: Map<string, Page> = new Map();
+let activeTabId: string | null = null;
+
+function generateTabId(): string {
+	return `tab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/**
+ * Captures a screenshot and saves it to the static screenshots directory.
+ * Returns the public URL path to the screenshot.
+ */
+async function captureScreenshot(
+	p: Page,
+	sessionId: string,
+	filename: string
+): Promise<string> {
+	const screenshotDir = path.join(process.cwd(), 'static', 'screenshots', sessionId);
+	await fs.mkdir(screenshotDir, { recursive: true });
+	const screenshotPath = path.join(screenshotDir, `${filename}.png`);
+	await p.screenshot({ path: screenshotPath, fullPage: false });
+	return `/screenshots/${sessionId}/${filename}.png`;
+}
 
 async function getBrowser(): Promise<Browser> {
 	if (!browser) {
@@ -17,135 +37,205 @@ async function getBrowser(): Promise<Browser> {
 	return browser;
 }
 
-async function getPage(): Promise<Page> {
-	if (!page || page.isClosed()) {
+async function getContext(): Promise<BrowserContext> {
+	if (!context) {
 		const b = await getBrowser();
-		const context = await b.newContext({ viewport: VIEWPORT });
-		page = await context.newPage();
+		context = await b.newContext({ viewport: browserConfig.viewport });
+	}
+	return context;
+}
+
+/**
+ * Creates a new tab, optionally navigating to a URL.
+ * Returns the new tab's ID.
+ */
+export async function createTab(url?: string): Promise<{ tabId: string; url: string }> {
+	const ctx = await getContext();
+	const page = await ctx.newPage();
+	const tabId = generateTabId();
+
+	pages.set(tabId, page);
+	activeTabId = tabId;
+
+	if (url) {
+		await page.goto(url, { waitUntil: 'load', timeout: browserConfig.navigationTimeout });
+		await waitForPageStable(page);
+	}
+
+	return { tabId, url: page.url() };
+}
+
+/**
+ * Switches the active tab to the specified tab ID.
+ */
+export function switchTab(tabId: string): void {
+	if (!pages.has(tabId)) {
+		throw new Error(`Tab ${tabId} not found`);
+	}
+	activeTabId = tabId;
+}
+
+/**
+ * Closes the specified tab.
+ */
+export async function closeTab(tabId: string): Promise<void> {
+	const page = pages.get(tabId);
+	if (page) {
+		await page.close();
+		pages.delete(tabId);
+	}
+	// Switch to another tab if we closed the active one
+	if (activeTabId === tabId) {
+		const remainingTabs = Array.from(pages.keys());
+		activeTabId = remainingTabs.length > 0 ? remainingTabs[0] : null;
+	}
+}
+
+/**
+ * Gets a specific page by tab ID.
+ */
+export function getPage(tabId: string): Page {
+	const page = pages.get(tabId);
+	if (!page) {
+		throw new Error(`Tab ${tabId} not found`);
 	}
 	return page;
 }
 
-async function waitForPageStable(p: Page): Promise<void> {
-	const startTime = Date.now();
-	const remainingTime = () => Math.max(0, MAX_WAIT_TIMEOUT - (Date.now() - startTime));
-
-	// 1. Wait for load event
-	try {
-		await p.waitForLoadState('load', { timeout: remainingTime() });
-	} catch {
-		// Timeout is ok - continue
+/**
+ * Gets the currently active page.
+ */
+export function getActivePage(): Page {
+	if (!activeTabId || !pages.has(activeTabId)) {
+		throw new Error('No active tab');
 	}
+	return pages.get(activeTabId)!;
+}
 
-	// 2. Wait for network idle (no requests for 500ms)
-	// This catches AJAX/fetch requests that fire after load
+/**
+ * Returns a list of all open tab IDs.
+ */
+export function listTabs(): string[] {
+	return Array.from(pages.keys());
+}
+
+/**
+ * Returns the currently active tab ID, or null if none.
+ */
+export function getActiveTabId(): string | null {
+	return activeTabId;
+}
+
+/**
+ * Waits for the page load event with a timeout.
+ */
+async function waitForLoad(p: Page, timeout: number): Promise<void> {
 	try {
-		await p.waitForLoadState('networkidle', { timeout: Math.min(5000, remainingTime()) });
+		await p.waitForLoadState('load', { timeout });
 	} catch {
-		// Timeout is ok - some pages have persistent connections
+		// Timeout is acceptable - continue
 	}
+}
 
-	// 3. Wait for fonts and images, plus DOM stability
+/**
+ * Waits for network to become idle (no requests for 500ms).
+ */
+async function waitForNetworkIdle(p: Page, timeout: number): Promise<void> {
 	try {
-		await p.evaluate(
-			([stableTime, maxTime]) => {
-				return new Promise<void>((resolve) => {
-					const startTime = Date.now();
-					let timeoutId: ReturnType<typeof setTimeout>;
-					let resolved = false;
+		await p.waitForLoadState('networkidle', { timeout });
+	} catch {
+		// Timeout is acceptable - some pages have persistent connections
+	}
+}
 
-					const finish = () => {
-						if (resolved) return;
-						resolved = true;
-						observer.disconnect();
-						clearTimeout(timeoutId);
-						resolve();
-					};
+/**
+ * Browser-side script that waits for DOM stability, fonts, and visible images.
+ * This runs inside the browser context via page.evaluate().
+ */
+function createDomStabilityScript() {
+	return ([stableTime, maxTime, imageTimeout]: readonly [number, number, number]) => {
+		return new Promise<void>((resolve) => {
+			const startTime = Date.now();
+			let timeoutId: ReturnType<typeof setTimeout>;
+			let resolved = false;
 
-					// Check if we've exceeded max wait time
-					const checkMaxTime = () => {
-						if (Date.now() - startTime > maxTime) {
-							finish();
-							return true;
-						}
-						return false;
-					};
+			const finish = () => {
+				if (resolved) return;
+				resolved = true;
+				observer.disconnect();
+				clearTimeout(timeoutId);
+				resolve();
+			};
 
-					const observer = new MutationObserver(() => {
-						clearTimeout(timeoutId);
-						if (checkMaxTime()) return;
+			const isTimedOut = () => Date.now() - startTime > maxTime;
 
-						timeoutId = setTimeout(finish, stableTime);
-					});
+			const observer = new MutationObserver(() => {
+				clearTimeout(timeoutId);
+				if (isTimedOut()) {
+					finish();
+					return;
+				}
+				timeoutId = setTimeout(finish, stableTime);
+			});
 
-					observer.observe(document.body, {
-						childList: true,
-						subtree: true,
-						attributes: true,
-						characterData: true
-					});
+			observer.observe(document.body, {
+				childList: true,
+				subtree: true,
+				attributes: true,
+				characterData: true
+			});
 
-					// Wait for fonts to load
-					const fontsReady = document.fonts?.ready || Promise.resolve();
+			const fontsReady = document.fonts?.ready || Promise.resolve();
 
-					// Wait for visible images to load
-					const imagesReady = new Promise<void>((imgResolve) => {
-						const images = Array.from(document.querySelectorAll('img'))
-							.filter((img) => {
-								const rect = img.getBoundingClientRect();
-								return rect.top < window.innerHeight && rect.bottom > 0;
-							})
-							.filter((img) => !img.complete);
+			const imagesReady = new Promise<void>((imgResolve) => {
+				const visibleImages = Array.from(document.querySelectorAll('img'))
+					.filter((img) => {
+						const rect = img.getBoundingClientRect();
+						return rect.top < window.innerHeight && rect.bottom > 0;
+					})
+					.filter((img) => !img.complete);
 
-						if (images.length === 0) {
-							imgResolve();
-							return;
-						}
+				if (visibleImages.length === 0) {
+					imgResolve();
+					return;
+				}
 
-						let loadedCount = 0;
-						const checkDone = () => {
-							loadedCount++;
-							if (loadedCount >= images.length) imgResolve();
-						};
+				let loadedCount = 0;
+				const onImageLoaded = () => {
+					loadedCount++;
+					if (loadedCount >= visibleImages.length) imgResolve();
+				};
 
-						images.forEach((img) => {
-							img.addEventListener('load', checkDone, { once: true });
-							img.addEventListener('error', checkDone, { once: true });
-						});
-
-						// Don't wait forever for images
-						setTimeout(imgResolve, 3000);
-					});
-
-					// Combine all checks
-					Promise.all([fontsReady, imagesReady]).then(() => {
-						if (checkMaxTime()) return;
-						// After fonts/images, still wait for DOM stability
-						timeoutId = setTimeout(finish, stableTime);
-					});
-
-					// Initial timeout in case there are no mutations
-					timeoutId = setTimeout(finish, stableTime);
-
-					// Absolute max timeout
-					setTimeout(finish, maxTime);
+				visibleImages.forEach((img) => {
+					img.addEventListener('load', onImageLoaded, { once: true });
+					img.addEventListener('error', onImageLoaded, { once: true });
 				});
-			},
-			[DOM_STABLE_TIMEOUT, remainingTime()] as const
-		);
-	} catch {
-		// If evaluate fails, just continue
-	}
 
-	// 4. Wait a couple of animation frames to let any final paints settle
+				setTimeout(imgResolve, imageTimeout);
+			});
+
+			Promise.all([fontsReady, imagesReady]).then(() => {
+				if (isTimedOut()) {
+					finish();
+					return;
+				}
+				timeoutId = setTimeout(finish, stableTime);
+			});
+
+			timeoutId = setTimeout(finish, stableTime);
+			setTimeout(finish, maxTime);
+		});
+	};
+}
+
+/**
+ * Waits for two animation frames to let final paints settle.
+ */
+async function waitForAnimationFrames(p: Page): Promise<void> {
 	try {
 		await p.evaluate(() => {
 			return new Promise<void>((resolve) => {
-				requestAnimationFrame(() => {
-					requestAnimationFrame(() => {
-						resolve();
-					});
-				});
+				requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
 			});
 		});
 	} catch {
@@ -153,108 +243,96 @@ async function waitForPageStable(p: Page): Promise<void> {
 	}
 }
 
+/**
+ * Waits for the page to become stable by checking:
+ * 1. Load event
+ * 2. Network idle state
+ * 3. DOM stability (no mutations for a period)
+ * 4. Fonts and visible images loaded
+ * 5. Animation frames settled
+ */
+async function waitForPageStable(p: Page): Promise<void> {
+	const startTime = Date.now();
+	const remainingTime = () => Math.max(0, browserConfig.maxWaitTimeout - (Date.now() - startTime));
+
+	await waitForLoad(p, remainingTime());
+	await waitForNetworkIdle(p, Math.min(browserConfig.networkIdleTimeout, remainingTime()));
+
+	try {
+		const domScript = createDomStabilityScript();
+		await p.evaluate(domScript, [
+			browserConfig.domStableTimeout,
+			remainingTime(),
+			browserConfig.imageLoadTimeout
+		] as const);
+	} catch {
+		// If evaluate fails, continue
+	}
+
+	await waitForAnimationFrames(p);
+}
+
 export async function navigateAndScreenshot(
+	tabId: string,
 	url: string,
 	sessionId: string
 ): Promise<string> {
-	const p = await getPage();
-	await p.goto(url, { waitUntil: 'load', timeout: 30000 });
+	const p = getPage(tabId);
+	await p.goto(url, { waitUntil: 'load', timeout: browserConfig.navigationTimeout });
 	await waitForPageStable(p);
-
-	const screenshotDir = path.join(process.cwd(), 'static', 'screenshots', sessionId);
-	await fs.mkdir(screenshotDir, { recursive: true });
-
-	const screenshotPath = path.join(screenshotDir, '0.png');
-	await p.screenshot({ path: screenshotPath, fullPage: false });
-
-	return `/screenshots/${sessionId}/0.png`;
+	return captureScreenshot(p, sessionId, '0');
 }
 
 export async function executeClick(
+	tabId: string,
 	x: number,
 	y: number,
 	sessionId: string,
 	actionIndex: number
 ): Promise<string> {
-	const p = await getPage();
+	const p = getPage(tabId);
 	await p.mouse.click(x, y);
 	await waitForPageStable(p);
-
-	const screenshotPath = path.join(
-		process.cwd(),
-		'static',
-		'screenshots',
-		sessionId,
-		`${actionIndex}.png`
-	);
-	await p.screenshot({ path: screenshotPath, fullPage: false });
-
-	return `/screenshots/${sessionId}/${actionIndex}.png`;
+	return captureScreenshot(p, sessionId, String(actionIndex));
 }
 
 export async function executeScroll(
+	tabId: string,
 	direction: 'up' | 'down',
 	sessionId: string,
 	actionIndex: number
 ): Promise<string> {
-	const p = await getPage();
-	const scrollY = direction === 'down' ? SCROLL_AMOUNT : -SCROLL_AMOUNT;
+	const p = getPage(tabId);
+	const scrollY = direction === 'down' ? browserConfig.scrollAmount : -browserConfig.scrollAmount;
 	await p.mouse.wheel(0, scrollY);
 	await waitForPageStable(p);
-
-	const screenshotPath = path.join(
-		process.cwd(),
-		'static',
-		'screenshots',
-		sessionId,
-		`${actionIndex}.png`
-	);
-	await p.screenshot({ path: screenshotPath, fullPage: false });
-
-	return `/screenshots/${sessionId}/${actionIndex}.png`;
+	return captureScreenshot(p, sessionId, String(actionIndex));
 }
 
 export async function executeType(
+	tabId: string,
 	text: string,
 	sessionId: string,
 	actionIndex: number
 ): Promise<string> {
-	const p = await getPage();
-	await p.keyboard.type(text, { delay: 50 });
+	const p = getPage(tabId);
+	await p.keyboard.type(text, { delay: browserConfig.typingDelay });
 	await waitForPageStable(p);
-
-	const screenshotPath = path.join(
-		process.cwd(),
-		'static',
-		'screenshots',
-		sessionId,
-		`${actionIndex}.png`
-	);
-	await p.screenshot({ path: screenshotPath, fullPage: false });
-
-	return `/screenshots/${sessionId}/${actionIndex}.png`;
+	return captureScreenshot(p, sessionId, String(actionIndex));
 }
 
 export async function executeWait(
+	tabId: string,
 	sessionId: string,
 	actionIndex: number
 ): Promise<string> {
-	const p = await getPage();
+	const p = getPage(tabId);
 	await waitForPageStable(p);
-
-	const screenshotPath = path.join(
-		process.cwd(),
-		'static',
-		'screenshots',
-		sessionId,
-		`${actionIndex}.png`
-	);
-	await p.screenshot({ path: screenshotPath, fullPage: false });
-
-	return `/screenshots/${sessionId}/${actionIndex}.png`;
+	return captureScreenshot(p, sessionId, String(actionIndex));
 }
 
 export async function replaySingleAction(
+	tabId: string,
 	action: {
 		type: string;
 		coordinates?: { x: number; y: number };
@@ -264,52 +342,40 @@ export async function replaySingleAction(
 	sessionId: string,
 	actionIndex: number
 ): Promise<string> {
-	const p = await getPage();
+	const p = getPage(tabId);
 
 	if (action.type === 'click' && action.coordinates) {
 		await p.mouse.click(action.coordinates.x, action.coordinates.y);
 	} else if (action.type === 'scroll' && action.direction) {
-		const scrollY = action.direction === 'down' ? SCROLL_AMOUNT : -SCROLL_AMOUNT;
+		const scrollY = action.direction === 'down' ? browserConfig.scrollAmount : -browserConfig.scrollAmount;
 		await p.mouse.wheel(0, scrollY);
 	} else if (action.type === 'type' && action.text) {
-		await p.keyboard.type(action.text, { delay: 50 });
+		await p.keyboard.type(action.text, { delay: browserConfig.typingDelay });
 	}
 	// For 'wait' and 'stop' actions, just wait for page stability
 
 	await waitForPageStable(p);
-
-	const screenshotPath = path.join(
-		process.cwd(),
-		'static',
-		'screenshots',
-		sessionId,
-		`replay-${actionIndex}.png`
-	);
-	await p.screenshot({ path: screenshotPath, fullPage: false });
-
-	return `/screenshots/${sessionId}/replay-${actionIndex}.png`;
+	return captureScreenshot(p, sessionId, `replay-${actionIndex}`);
 }
 
-export async function refreshScreenshot(sessionId: string): Promise<string> {
-	const p = await getPage();
-
-	const screenshotPath = path.join(
-		process.cwd(),
-		'static',
-		'screenshots',
-		sessionId,
-		`refresh-${Date.now()}.png`
-	);
-	await fs.mkdir(path.dirname(screenshotPath), { recursive: true });
-	await p.screenshot({ path: screenshotPath, fullPage: false });
-
-	return `/screenshots/${sessionId}/refresh-${Date.now()}.png`;
+export async function refreshScreenshot(tabId: string, sessionId: string): Promise<string> {
+	const p = getPage(tabId);
+	const timestamp = Date.now();
+	return captureScreenshot(p, sessionId, `refresh-${timestamp}`);
 }
 
 export async function closeBrowser(): Promise<void> {
-	if (page) {
+	// Close all pages
+	for (const page of pages.values()) {
 		await page.close();
-		page = null;
+	}
+	pages.clear();
+	activeTabId = null;
+
+	// Close context and browser
+	if (context) {
+		await context.close();
+		context = null;
 	}
 	if (browser) {
 		await browser.close();
@@ -318,15 +384,10 @@ export async function closeBrowser(): Promise<void> {
 }
 
 export function getViewport() {
-	return VIEWPORT;
+	return browserConfig.viewport;
 }
 
-export async function getCurrentUrl(): Promise<string> {
-	const p = await getPage();
+export function getCurrentUrl(tabId: string): string {
+	const p = getPage(tabId);
 	return p.url();
-}
-
-export async function initBrowser(): Promise<void> {
-	await getPage();
-	console.log('Browser initialized and ready');
 }

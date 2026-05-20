@@ -1,11 +1,5 @@
 <script lang="ts">
-	import type { Action } from '$lib/types';
-
-	type HoverInfo =
-		| { type: 'click'; coordinates: { x: number; y: number } }
-		| { type: 'scroll'; direction: 'up' | 'down' }
-		| { type: 'type'; text: string }
-		| null;
+	import { type Action, type HoverInfo, formatAction } from '$lib/types';
 
 	interface Props {
 		actions: Action[];
@@ -28,23 +22,6 @@
 		onHoverAction,
 		editingIndex = null
 	}: Props = $props();
-
-	function formatAction(action: Action): string {
-		switch (action.type) {
-			case 'click':
-				return `Click (${action.coordinates?.x}, ${action.coordinates?.y})`;
-			case 'scroll':
-				return `Scroll ${action.direction}`;
-			case 'type':
-				return `Type "${action.text}"`;
-			case 'wait':
-				return 'Wait';
-			case 'stop':
-				return 'Stop';
-			default:
-				return 'Unknown';
-		}
-	}
 
 	function canReplay(index: number): boolean {
 		return onReplay !== undefined && index === replayedUpTo + 1 && !replayLoading;

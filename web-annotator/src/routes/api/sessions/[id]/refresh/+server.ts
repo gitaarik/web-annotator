@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { refreshScreenshot, getViewport } from '$lib/server/browser';
+import { errorResponse, getServerErrorMessage } from '$lib/server/api-utils';
 
 export const POST: RequestHandler = async ({ params }) => {
 	try {
@@ -9,7 +10,6 @@ export const POST: RequestHandler = async ({ params }) => {
 
 		return json({ screenshotPath, viewport });
 	} catch (error) {
-		const message = error instanceof Error ? error.message : 'Failed to refresh screenshot';
-		return json({ error: message }, { status: 500 });
+		return errorResponse(getServerErrorMessage(error, 'Failed to refresh screenshot'));
 	}
 };
