@@ -232,9 +232,8 @@ export async function launchChrome(options: {
 		'--disable-backgrounding-occluded-windows',
 		'--disable-ipc-flooding-protection',
 		'--disable-features=CalculateNativeWinOcclusion',
-		// Anti-bot stealth flags
-		'--disable-blink-features=AutomationControlled',
-		'--disable-infobars',
+		// Note: We use CDP script injection for navigator.webdriver stealth
+		// instead of --disable-blink-features=AutomationControlled (which shows a warning banner)
 		// WebRTC leak prevention
 		'--webrtc-ip-handling-policy=disable_non_proxied_udp',
 		'--enforce-webrtc-ip-permission-check',

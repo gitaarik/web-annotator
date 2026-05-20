@@ -149,6 +149,57 @@ export class CdpClient {
 	}
 
 	/**
+	 * Inject stealth scripts to prevent bot detection.
+	 * Must be called before navigating to any page.
+	 * Uses Page.addScriptToEvaluateOnNewDocument so scripts run before any page JS.
+	 */
+	async injectStealthScripts(): Promise<void> {
+		// This script runs before any page JavaScript
+		const stealthScript = `
+			// Hide navigator.webdriver
+			Object.defineProperty(navigator, 'webdriver', {
+				get: () => undefined,
+				configurable: true
+			});
+
+			// Hide automation-related properties from window
+			delete window.cdc_adoQpoasnfa76pfcZLmcfl_Array;
+			delete window.cdc_adoQpoasnfa76pfcZLmcfl_Promise;
+			delete window.cdc_adoQpoasnfa76pfcZLmcfl_Symbol;
+
+			// Fix permissions API to not reveal automation
+			const originalQuery = window.navigator.permissions?.query?.bind(window.navigator.permissions);
+			if (originalQuery) {
+				window.navigator.permissions.query = (parameters) => {
+					if (parameters.name === 'notifications') {
+						return Promise.resolve({ state: Notification.permission, onchange: null });
+					}
+					return originalQuery(parameters);
+				};
+			}
+
+			// Fix plugins to look more realistic (headless Chrome has empty plugins)
+			Object.defineProperty(navigator, 'plugins', {
+				get: () => [
+					{ name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
+					{ name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '' },
+					{ name: 'Native Client', filename: 'internal-nacl-plugin', description: '' }
+				],
+				configurable: true
+			});
+
+			// Fix languages
+			Object.defineProperty(navigator, 'languages', {
+				get: () => ['en-US', 'en'],
+				configurable: true
+			});
+		`;
+
+		await this.send('Page.addScriptToEvaluateOnNewDocument', { source: stealthScript });
+		console.log('[CDP] Stealth scripts injected');
+	}
+
+	/**
 	 * Navigate to a URL.
 	 */
 	async navigate(url: string): Promise<void> {
@@ -205,11 +256,13 @@ export class CdpClient {
 	async getLayoutMetrics(): Promise<{
 		contentSize: { width: number; height: number };
 		layoutViewport: { pageX: number; pageY: number; clientWidth: number; clientHeight: number };
+		cssLayoutViewport: { pageX: number; pageY: number; clientWidth: number; clientHeight: number };
 	}> {
 		const result = await this.send('Page.getLayoutMetrics');
 		return result as {
 			contentSize: { width: number; height: number };
 			layoutViewport: { pageX: number; pageY: number; clientWidth: number; clientHeight: number };
+			cssLayoutViewport: { pageX: number; pageY: number; clientWidth: number; clientHeight: number };
 		};
 	}
 
@@ -229,6 +282,64 @@ export class CdpClient {
 			bounds: { left: number; top: number; width: number; height: number; windowState: string };
 		};
 		return windowResult.bounds;
+	}
+
+	/**
+	 * Get precise content viewport position using JavaScript.
+	 * This accounts for infobars and other dynamic Chrome UI elements.
+	 */
+	async getContentViewportInfo(): Promise<{
+		screenX: number;
+		screenY: number;
+		outerWidth: number;
+		outerHeight: number;
+		innerWidth: number;
+		innerHeight: number;
+		devicePixelRatio: number;
+		chromeBarHeight: number;
+		contentTop: number;
+		contentLeft: number;
+	}> {
+		const result = await this.send('Runtime.evaluate', {
+			expression: `({
+				screenX: window.screenX,
+				screenY: window.screenY,
+				outerWidth: window.outerWidth,
+				outerHeight: window.outerHeight,
+				innerWidth: window.innerWidth,
+				innerHeight: window.innerHeight,
+				devicePixelRatio: window.devicePixelRatio
+			})`,
+			returnByValue: true
+		}) as { result?: { value?: {
+			screenX: number;
+			screenY: number;
+			outerWidth: number;
+			outerHeight: number;
+			innerWidth: number;
+			innerHeight: number;
+			devicePixelRatio: number;
+		} } };
+
+		const info = result?.result?.value;
+		if (!info) {
+			throw new Error('Failed to get viewport info from page');
+		}
+
+		// Chrome bar height includes tabs, address bar, bookmarks bar, and any infobars
+		const chromeBarHeight = info.outerHeight - info.innerHeight;
+		// Content area starts at screenY + chromeBarHeight
+		const contentTop = info.screenY + chromeBarHeight;
+		// Left border (usually minimal)
+		const leftBorder = Math.floor((info.outerWidth - info.innerWidth) / 2);
+		const contentLeft = info.screenX + leftBorder;
+
+		return {
+			...info,
+			chromeBarHeight,
+			contentTop,
+			contentLeft
+		};
 	}
 
 	/**

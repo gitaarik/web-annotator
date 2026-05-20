@@ -147,15 +147,19 @@ async function clickViaXdotool(
 	button: 'left' | 'middle' | 'right' = 'left'
 ): Promise<void> {
 	const buttonNum = XDOTOOL_BUTTON_MAP[button];
+	const roundedX = Math.round(x);
+	const roundedY = Math.round(y);
+	console.log(`[xdotool] Clicking at (${roundedX}, ${roundedY}) button ${buttonNum}`);
 	// Move to position and click
 	await runProc('xdotool', [
 		'mousemove',
 		'--sync',
-		String(Math.round(x)),
-		String(Math.round(y)),
+		String(roundedX),
+		String(roundedY),
 		'click',
 		String(buttonNum)
 	]);
+	console.log(`[xdotool] Click command completed`);
 }
 
 /**

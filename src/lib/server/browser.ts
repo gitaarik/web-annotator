@@ -22,6 +22,9 @@ let activeSessionId: string | null = null;
 const tabs: Map<string, { sessionId: string; url: string }> = new Map();
 let activeTabId: string | null = null;
 
+// Track actual viewport from browser-service (updated on each screenshot)
+let currentViewport: { width: number; height: number } = browserConfig.viewport;
+
 function generateTabId(): string {
 	return `tab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -70,9 +73,19 @@ async function saveScreenshot(
 
 /**
  * Captures a screenshot via browser-service and saves it locally.
+ * Also updates the current viewport from the browser.
  */
 async function captureScreenshot(sessionId: string, filename: string): Promise<string> {
-	const result = await browserApi<{ data: string }>('GET', `/sessions/${sessionId}/screenshot`);
+	const result = await browserApi<{
+		data: string;
+		viewport?: { width: number; height: number };
+	}>('GET', `/sessions/${sessionId}/screenshot`);
+
+	// Update viewport if returned by browser-service
+	if (result.viewport) {
+		currentViewport = result.viewport;
+	}
+
 	return saveScreenshot(result.data, sessionId, filename);
 }
 
@@ -492,7 +505,7 @@ export async function closeBrowser(): Promise<void> {
 }
 
 export function getViewport() {
-	return browserConfig.viewport;
+	return currentViewport;
 }
 
 export async function getCurrentUrl(tabId: string): Promise<string> {

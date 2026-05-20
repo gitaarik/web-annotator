@@ -30,16 +30,57 @@ function runProcCapture(cmd: string, args: string[]): Promise<string> {
 /**
  * Get window IDs for a Chrome process by PID (Linux).
  * This is more reliable than searching by class name.
+ * Filters to only include visible windows with proper names (not popups/DevTools).
  */
 async function getWindowIdsByPid(pid: number): Promise<string[]> {
 	if (process.platform !== 'linux') return [];
 
 	try {
 		const output = await runProcCapture('xdotool', ['search', '--pid', String(pid)]);
-		return output
+		const allIds = output
 			.trim()
 			.split('\n')
 			.filter((id) => id.length > 0);
+
+		// Filter to find the main browser window by checking window properties
+		const mainWindows: string[] = [];
+		for (const id of allIds) {
+			try {
+				// Get window name - main Chrome window has the page title
+				const name = await runProcCapture('xdotool', ['getwindowname', id]);
+				const windowName = name.trim();
+
+				// Skip DevTools, extensions, and small popup windows
+				if (
+					windowName &&
+					!windowName.includes('DevTools') &&
+					!windowName.startsWith('chrome-extension://') &&
+					windowName !== 'Chrome' // Empty windows often just say "Chrome"
+				) {
+					// Get window geometry to filter out tiny windows
+					try {
+						const geometry = await runProcCapture('xdotool', ['getwindowgeometry', id]);
+						const sizeMatch = geometry.match(/Geometry: (\d+)x(\d+)/);
+						if (sizeMatch) {
+							const width = parseInt(sizeMatch[1], 10);
+							const height = parseInt(sizeMatch[2], 10);
+							// Only include windows with reasonable size (> 200x200)
+							if (width > 200 && height > 200) {
+								mainWindows.push(id);
+							}
+						}
+					} catch {
+						// If we can't get geometry, still include it
+						mainWindows.push(id);
+					}
+				}
+			} catch {
+				// Skip windows we can't inspect
+			}
+		}
+
+		console.log(`[Focus] Filtered ${allIds.length} windows to ${mainWindows.length} main windows`);
+		return mainWindows.length > 0 ? mainWindows : allIds;
 	} catch {
 		return [];
 	}
@@ -209,11 +250,14 @@ export async function activateBrowserWindow(pid: number): Promise<boolean> {
 	switch (process.platform) {
 		case 'linux': {
 			const windowIds = await getCachedWindowIds(pid);
+			console.log(`[Focus] Window IDs for PID ${pid}:`, windowIds);
 			if (windowIds.length === 0) {
 				console.log(`[Focus] No window IDs found for PID ${pid}`);
 				return false;
 			}
-			return activateWindowLinux(windowIds);
+			const result = await activateWindowLinux(windowIds);
+			console.log(`[Focus] Activation result: ${result}`);
+			return result;
 		}
 		case 'darwin':
 			return activateChromeMac();

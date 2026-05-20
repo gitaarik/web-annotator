@@ -79,10 +79,11 @@ app.post('/sessions/:id/launch', async (req, res) => {
 		const { url } = req.body || {};
 		const { session, isNew } = await getOrCreateSession(req.params.id, { url });
 
-		// Create CDP client for new sessions
+		// Create CDP client for new sessions and inject stealth scripts
 		if (isNew) {
 			const client = new CdpClient(session.cdpPort, session.cdpWsUrl);
 			await client.connect();
+			await client.injectStealthScripts();
 			cdpClients.set(session.sessionId, client);
 		}
 
@@ -175,6 +176,8 @@ app.get('/sessions/:id/url', async (req, res) => {
 app.post('/sessions/:id/click', async (req, res) => {
 	try {
 		const { x, y, button = 'left' } = req.body;
+		console.log(`[Click] Session ${req.params.id}: viewport (${x}, ${y})`);
+
 		if (typeof x !== 'number' || typeof y !== 'number') {
 			res.status(400).json({ error: 'x and y coordinates required' });
 			return;
@@ -182,9 +185,11 @@ app.post('/sessions/:id/click', async (req, res) => {
 
 		const session = getSession(req.params.id);
 		if (!session) {
+			console.log(`[Click] Session not found: ${req.params.id}`);
 			res.status(404).json({ error: 'Session not found' });
 			return;
 		}
+		console.log(`[Click] Found session, Chrome PID: ${session.chromePid}`);
 
 		const client = await getCdpClient(req.params.id);
 		if (!client) {
@@ -192,30 +197,45 @@ app.post('/sessions/:id/click', async (req, res) => {
 			return;
 		}
 
-		// Get window bounds to convert viewport coords to screen coords
-		const bounds = await client.getWindowBounds();
-		const metrics = await client.getLayoutMetrics();
-		const chromeBarHeight = bounds.height - metrics.layoutViewport.clientHeight;
+		// Get precise content viewport position using JavaScript
+		// This accounts for infobars and other dynamic Chrome UI elements
+		const viewportInfo = await client.getContentViewportInfo();
+		console.log(`[Click] Viewport info:`, JSON.stringify(viewportInfo));
 
-		const screenX = bounds.left + x;
-		const screenY = bounds.top + chromeBarHeight + y;
+		// DPI scale factor from window.devicePixelRatio
+		const dpiScale = viewportInfo.devicePixelRatio;
+		console.log(`[Click] DPI scale: ${dpiScale}, Chrome bar height: ${viewportInfo.chromeBarHeight}`);
+
+		// Convert CSS viewport coordinates to physical screen coordinates.
+		// All values from JavaScript (screenX/Y, dimensions) are in CSS/logical pixels.
+		// Scale everything by devicePixelRatio to get physical screen coordinates.
+		const leftBorder = Math.floor((viewportInfo.outerWidth - viewportInfo.innerWidth) / 2);
+		const screenX = (viewportInfo.screenX + leftBorder + x) * dpiScale;
+		const screenY = (viewportInfo.screenY + viewportInfo.chromeBarHeight + y) * dpiScale;
+		console.log(`[Click] Screen coords: (${screenX}, ${screenY}) = (${viewportInfo.screenX} + ${leftBorder} + ${x}, ${viewportInfo.screenY} + ${viewportInfo.chromeBarHeight} + ${y}) * ${dpiScale}`);
 
 		// Activate window and click
+		console.log(`[Click] Activating window for PID ${session.chromePid}...`);
 		const focused = await activateBrowserWindow(session.chromePid);
+		console.log(`[Click] Focus result: ${focused}`);
+
 		if (focused) {
 			try {
 				await osClick(screenX, screenY, button);
+				console.log(`[Click] OS-level click succeeded`);
 				res.json({ success: true, method: 'os-level' });
 				return;
 			} catch (err) {
-				console.log('[Server] OS-level click failed, falling back to CDP:', err);
+				console.log('[Click] OS-level click failed, falling back to CDP:', err);
 			}
 		}
 
 		// Fallback to CDP
+		console.log(`[Click] Using CDP fallback`);
 		await client.cdpClick(x, y);
 		res.json({ success: true, method: 'cdp' });
 	} catch (err) {
+		console.error('[Click] Error:', err);
 		res.status(500).json({
 			success: false,
 			error: err instanceof Error ? err.message : String(err)
@@ -326,12 +346,19 @@ app.get('/sessions/:id/screenshot', async (req, res) => {
 
 		const data = await client.screenshot({ format, quality });
 
+		// Get actual viewport dimensions (innerWidth/innerHeight = CSS viewport size)
+		const viewportInfo = await client.getContentViewportInfo();
+		const viewport = {
+			width: viewportInfo.innerWidth,
+			height: viewportInfo.innerHeight
+		};
+
 		// Return as base64 JSON or binary
 		if (req.query.output === 'binary') {
 			res.set('Content-Type', `image/${format}`);
 			res.send(Buffer.from(data, 'base64'));
 		} else {
-			res.json({ data, format });
+			res.json({ data, format, viewport });
 		}
 	} catch (err) {
 		res.status(500).json({
