@@ -14,6 +14,8 @@ services:
       - DISPLAY=:99
       - HOST=0.0.0.0
       - PORT=3001
+      - BROWSER_VIEWPORT_WIDTH=1280
+      - BROWSER_VIEWPORT_HEIGHT=890
     # Needed for Chromium shared memory
     shm_size: '2gb'
     healthcheck:

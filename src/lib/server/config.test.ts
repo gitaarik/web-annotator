@@ -16,7 +16,7 @@ describe('browserConfig', () => {
 		const { browserConfig } = await import('./config');
 
 		expect(browserConfig.viewport.width).toBe(1280);
-		expect(browserConfig.viewport.height).toBe(800);
+		expect(browserConfig.viewport.height).toBe(1270);
 		expect(browserConfig.scrollAmount).toBe(400);
 		expect(browserConfig.domStableTimeout).toBe(750);
 		expect(browserConfig.maxWaitTimeout).toBe(15000);

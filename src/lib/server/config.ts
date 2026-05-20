@@ -18,7 +18,7 @@ export const browserConfig = {
 	/** Browser viewport dimensions */
 	viewport: {
 		width: getEnvNumber('BROWSER_VIEWPORT_WIDTH', 1280),
-		height: getEnvNumber('BROWSER_VIEWPORT_HEIGHT', 800)
+		height: getEnvNumber('BROWSER_VIEWPORT_HEIGHT', 1270)
 	},
 
 	/** Amount to scroll on scroll actions (in pixels) */

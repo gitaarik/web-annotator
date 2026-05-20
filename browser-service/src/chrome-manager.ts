@@ -244,8 +244,8 @@ export async function launchChrome(options: {
 		// WebRTC leak prevention
 		'--webrtc-ip-handling-policy=disable_non_proxied_udp',
 		'--enforce-webrtc-ip-permission-check',
-		// Window size
-		'--window-size=1280,800'
+		// Window size (from env vars, matching web-annotator config)
+		`--window-size=${process.env.BROWSER_VIEWPORT_WIDTH || 1280},${process.env.BROWSER_VIEWPORT_HEIGHT || 1270}`
 	];
 
 	// Docker/container-specific flags
