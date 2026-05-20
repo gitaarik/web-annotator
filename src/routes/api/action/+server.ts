@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import {
 	executeClick,
+	executeHover,
 	executeScroll,
 	executeType,
 	executeWait,
@@ -50,6 +51,11 @@ export const POST: RequestHandler = async ({ request }) => {
 				return badRequest('Coordinates required for click action');
 			}
 			actionResult = await executeClick(tabId, coordinates.x, coordinates.y, sessionId, screenshotIndex);
+		} else if (actionType === 'hover') {
+			if (!coordinates?.x || !coordinates?.y) {
+				return badRequest('Coordinates required for hover action');
+			}
+			actionResult = await executeHover(tabId, coordinates.x, coordinates.y, sessionId, screenshotIndex);
 		} else if (actionType === 'scroll') {
 			if (!direction) {
 				return badRequest('Direction required for scroll action');
@@ -136,7 +142,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			screenshotPath,
 			url,
 			...(currentUrl && currentUrl !== url && { afterUrl: currentUrl }),
-			...(actionType === 'click' && { coordinates }),
+			...((actionType === 'click' || actionType === 'hover') && { coordinates }),
 			...(actionType === 'scroll' && { direction }),
 			...(actionType === 'type' && { text }),
 			...(actionType === 'newTab' && { targetUrl, targetTabId: newTabId }),

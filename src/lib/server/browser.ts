@@ -341,6 +341,34 @@ export async function executeClick(
 	return { beforeScreenshot, afterScreenshot, beforeUrl, afterUrl, redirects };
 }
 
+export async function executeHover(
+	tabId: string,
+	x: number,
+	y: number,
+	sessionId: string,
+	actionIndex: number
+): Promise<ActionResult> {
+	const browserSessionId = getSessionId(tabId);
+	const beforeScreenshot = await captureScreenshot(browserSessionId, `${actionIndex}-before`);
+	const beforeUrl = (await browserApi<{ url: string }>('GET', `/sessions/${browserSessionId}/url`))
+		.url;
+
+	// Move mouse to position without clicking
+	await browserApi<{ success: boolean }>('POST', `/sessions/${browserSessionId}/move`, {
+		x,
+		y
+	});
+
+	// Wait briefly for any hover effects to appear
+	await sleep(300);
+
+	const afterScreenshot = await captureScreenshot(browserSessionId, `${actionIndex}-after`);
+	const afterUrl = (await browserApi<{ url: string }>('GET', `/sessions/${browserSessionId}/url`))
+		.url;
+
+	return { beforeScreenshot, afterScreenshot, beforeUrl, afterUrl, redirects: [] };
+}
+
 export async function executeScroll(
 	tabId: string,
 	direction: 'up' | 'down',
@@ -458,6 +486,12 @@ export async function replaySingleAction(
 					y: action.coordinates.y,
 					button: 'left'
 				});
+			} else if (action.type === 'hover' && action.coordinates) {
+				await browserApi<{ success: boolean }>('POST', `/sessions/${browserSessionId}/move`, {
+					x: action.coordinates.x,
+					y: action.coordinates.y
+				});
+				await sleep(300); // Wait for hover effects
 			} else if (action.type === 'scroll' && action.direction) {
 				const deltaY =
 					action.direction === 'down'

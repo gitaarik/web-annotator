@@ -25,7 +25,7 @@ export interface AnnotationSession {
 }
 
 export interface Action {
-	type: 'click' | 'scroll' | 'type' | 'wait' | 'stop' | 'newTab' | 'switchTab' | 'closeTab';
+	type: 'click' | 'hover' | 'scroll' | 'type' | 'wait' | 'stop' | 'newTab' | 'switchTab' | 'closeTab';
 	tabId: string;
 	explanation: string;
 	timestamp: string;
@@ -42,6 +42,11 @@ export interface Action {
 
 export interface ClickAction extends Action {
 	type: 'click';
+	coordinates: { x: number; y: number };
+}
+
+export interface HoverAction extends Action {
+	type: 'hover';
 	coordinates: { x: number; y: number };
 }
 
@@ -80,6 +85,7 @@ export interface SessionSummary {
 
 export type HoverInfo =
 	| { type: 'click'; coordinates: { x: number; y: number } }
+	| { type: 'hover'; coordinates: { x: number; y: number } }
 	| { type: 'scroll'; direction: 'up' | 'down' }
 	| { type: 'type'; text: string }
 	| null;
@@ -91,6 +97,8 @@ export function formatAction(action: Action): string {
 	switch (action.type) {
 		case 'click':
 			return `Click (${action.coordinates?.x}, ${action.coordinates?.y})`;
+		case 'hover':
+			return `Hover (${action.coordinates?.x}, ${action.coordinates?.y})`;
 		case 'scroll':
 			return `Scroll ${action.direction}`;
 		case 'type':

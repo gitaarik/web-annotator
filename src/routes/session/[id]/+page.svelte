@@ -26,7 +26,7 @@
 	let isCompleted = $state(!!session.finalAnswer);
 
 	// Input state
-	let selectedAction = $state<'click' | 'scroll' | 'type' | 'wait' | 'stop' | null>(null);
+	let selectedAction = $state<'click' | 'hover' | 'scroll' | 'type' | 'wait' | 'stop' | null>(null);
 	let scrollDirection = $state<'up' | 'down'>('down');
 	let typeText = $state('');
 	let explanation = $state('');
@@ -332,7 +332,7 @@
 			explanation
 		};
 
-		if (selectedAction === 'click' && clickCoordinates) {
+		if ((selectedAction === 'click' || selectedAction === 'hover') && clickCoordinates) {
 			actionUpdate.coordinates = clickCoordinates;
 		} else if (selectedAction === 'scroll') {
 			actionUpdate.direction = scrollDirection;
@@ -356,7 +356,7 @@
 	}
 
 	function handleClick(x: number, y: number) {
-		if (selectedAction === 'click') {
+		if (selectedAction === 'click' || selectedAction === 'hover') {
 			clickCoordinates = { x, y };
 		}
 	}
@@ -367,7 +367,7 @@
 			return;
 		}
 
-		if (selectedAction === 'click' && !clickCoordinates) {
+		if ((selectedAction === 'click' || selectedAction === 'hover') && !clickCoordinates) {
 			error = 'Please click on the screenshot to select coordinates';
 			return;
 		}
@@ -444,7 +444,7 @@
 			scrollDirection = 'down';
 
 			// Then populate based on action type
-			const supportedTypes = ['click', 'scroll', 'type', 'wait', 'stop'] as const;
+			const supportedTypes = ['click', 'hover', 'scroll', 'type', 'wait', 'stop'] as const;
 			if (supportedTypes.includes(action.type as typeof supportedTypes[number])) {
 				selectedAction = action.type as typeof supportedTypes[number];
 			} else {
@@ -452,7 +452,7 @@
 			}
 			explanation = action.explanation;
 
-			if (action.type === 'click' && action.coordinates) {
+			if ((action.type === 'click' || action.type === 'hover') && action.coordinates) {
 				clickCoordinates = action.coordinates;
 			} else if (action.type === 'scroll' && action.direction) {
 				scrollDirection = action.direction;
@@ -473,7 +473,7 @@
 	let canExecute = $derived(
 		selectedAction !== null &&
 			explanation.trim() !== '' &&
-			(selectedAction !== 'click' || clickCoordinates !== null) &&
+			((selectedAction !== 'click' && selectedAction !== 'hover') || clickCoordinates !== null) &&
 			(selectedAction !== 'type' || typeText.trim() !== '')
 	);
 
@@ -556,7 +556,7 @@
 								src={screenshotPath}
 								{viewport}
 								onclick={handleClick}
-								clickEnabled={selectedAction === 'click'}
+								clickEnabled={selectedAction === 'click' || selectedAction === 'hover'}
 								{hoverInfo}
 							/>
 							{#if replayLoading || actionLoading}
@@ -569,7 +569,7 @@
 							{/if}
 						</div>
 						<div class="screenshot-toolbar">
-							{#if clickCoordinates && selectedAction === 'click'}
+							{#if clickCoordinates && (selectedAction === 'click' || selectedAction === 'hover')}
 								<span class="coordinates">Selected: ({clickCoordinates.x}, {clickCoordinates.y})</span>
 							{/if}
 							<div class="toolbar-buttons">

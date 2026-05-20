@@ -147,6 +147,7 @@
 				{#if action.screenshotPath}
 					<button
 						class="screenshot-thumbnail"
+						style="aspect-ratio: {viewport.width} / {viewport.height};"
 						onclick={() => expandedAction = action}
 						title="Click to enlarge"
 					>
@@ -248,6 +249,7 @@
 				</div>
 				<button
 					class="screenshot-thumbnail"
+					style="aspect-ratio: {viewport.width} / {viewport.height};"
 					onclick={() => expandedScreenshotSrc = currentScreenshot}
 					title="Click to enlarge"
 				>
@@ -353,6 +355,7 @@
 							{#if redirect.screenshotPath}
 								<button
 									class="flow-screenshot"
+									style="aspect-ratio: {viewport.width} / {viewport.height};"
 									onclick={() => {
 										expandedScreenshotSrc = redirect.screenshotPath!;
 										detailsAction = null;
@@ -609,7 +612,7 @@
 	.screenshot-thumbnail {
 		position: relative;
 		width: 100%;
-		aspect-ratio: 1280 / 800;
+		/* aspect-ratio is set via inline style based on viewport prop */
 		padding: 0;
 		border: 1px solid #ddd;
 		border-radius: 4px;
@@ -846,7 +849,7 @@
 
 	.flow-screenshot {
 		width: 200px;
-		aspect-ratio: 1280 / 800;
+		/* aspect-ratio is set via inline style based on viewport prop */
 		padding: 0;
 		margin-bottom: 0.5rem;
 		border: 1px solid #ddd;

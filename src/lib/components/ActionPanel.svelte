@@ -1,9 +1,9 @@
 <script lang="ts">
 	interface Props {
-		selectedAction: 'click' | 'scroll' | 'type' | 'wait' | 'stop' | null;
+		selectedAction: 'click' | 'hover' | 'scroll' | 'type' | 'wait' | 'stop' | null;
 		scrollDirection: 'up' | 'down';
 		typeText: string;
-		onactionchange: (action: 'click' | 'scroll' | 'type' | 'wait' | 'stop') => void;
+		onactionchange: (action: 'click' | 'hover' | 'scroll' | 'type' | 'wait' | 'stop') => void;
 		onscrolldirectionchange: (direction: 'up' | 'down') => void;
 		ontextchange: (text: string) => void;
 	}
@@ -26,6 +26,19 @@
 			<span class="action-icon">&#128433;</span>
 			Click
 			<span class="action-hint">Click on the screenshot to select coordinates</span>
+		</label>
+
+		<label class:selected={selectedAction === 'hover'}>
+			<input
+				type="radio"
+				name="action"
+				value="hover"
+				checked={selectedAction === 'hover'}
+				onchange={() => onactionchange('hover')}
+			/>
+			<span class="action-icon">&#128070;</span>
+			Hover
+			<span class="action-hint">Move mouse to coordinates without clicking</span>
 		</label>
 
 		<label class:selected={selectedAction === 'scroll'}>
