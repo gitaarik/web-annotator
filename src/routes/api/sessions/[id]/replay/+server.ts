@@ -31,10 +31,12 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		const result = await replaySingleAction(tabId, action, session.id, actionIndex);
 		const viewport = getViewport();
 
-		// Update action with BEFORE screenshot (state when action was taken)
+		// Update action with screenshots, URLs, and redirects
 		const updatedSession = await updateAction(params.id, actionIndex, {
 			screenshotPath: result.beforeScreenshot,
-			url: result.beforeUrl
+			url: result.beforeUrl,
+			...(result.afterUrl !== result.beforeUrl && { afterUrl: result.afterUrl }),
+			...(result.redirects?.length && { redirects: result.redirects })
 		});
 
 		// Return AFTER screenshot for UI display
@@ -44,7 +46,8 @@ export const POST: RequestHandler = async ({ params, request }) => {
 			viewport,
 			actionIndex,
 			session: updatedSession,
-			tabId
+			tabId,
+			redirects: result.redirects
 		});
 	} catch (error) {
 		return errorResponse(getServerErrorMessage(error, 'Failed to replay action'));

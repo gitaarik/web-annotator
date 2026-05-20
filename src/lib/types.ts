@@ -36,7 +36,8 @@ export interface Action {
 	targetUrl?: string; // for newTab
 	screenshotPath: string;
 	url: string;
-	redirects?: Redirect[]; // Chain of URLs navigated through after action
+	afterUrl?: string; // URL after action completed (if different from url)
+	redirects?: Redirect[]; // Chain of intermediate URLs during navigation
 }
 
 export interface ClickAction extends Action {

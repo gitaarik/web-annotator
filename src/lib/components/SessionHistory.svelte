@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { type Action, type HoverInfo, type Redirect, formatAction } from '$lib/types';
+	import { type Action, type HoverInfo, formatAction } from '$lib/types';
 	import ScreenshotViewer from './ScreenshotViewer.svelte';
 
 	let copiedUrl: string | null = $state(null);
 	let expandedAction: Action | null = $state(null);
 	let expandedScreenshotSrc: string | null = $state(null);
-	let expandedRedirects: { actionIndex: number; redirects: Redirect[] } | null = $state(null);
+	let detailsAction: { index: number; action: Action } | null = $state(null);
 
 	function formatUrlParts(url: string): { line1: string; line2: string | null } {
 		const singleLineMax = 40; // URLs up to this length stay on one line (CSS handles overflow)
@@ -189,13 +189,17 @@
 						</button>
 					{/if}
 				</div>
-				{#if action.redirects && action.redirects.length > 0}
+				{#if action.afterUrl || (action.redirects && action.redirects.length > 0)}
 					<button
-						class="redirects-badge"
-						onclick={() => expandedRedirects = { actionIndex: index, redirects: action.redirects! }}
-						title="View redirect chain"
+						class="navigation-badge"
+						onclick={() => detailsAction = { index, action }}
+						title="View navigation details"
 					>
-						{action.redirects.length} redirect{action.redirects.length > 1 ? 's' : ''}
+						{#if action.redirects && action.redirects.length > 0}
+							{action.redirects.length} redirect{action.redirects.length > 1 ? 's' : ''}
+						{:else}
+							navigated
+						{/if}
 					</button>
 				{/if}
 				{#if onReplay || (onDelete && index === actions.length - 1)}
@@ -282,7 +286,7 @@
 	if (e.key === 'Escape') {
 		if (expandedAction) expandedAction = null;
 		else if (expandedScreenshotSrc) expandedScreenshotSrc = null;
-		else if (expandedRedirects) expandedRedirects = null;
+		else if (detailsAction) detailsAction = null;
 	}
 }} />
 
@@ -313,39 +317,53 @@
 	</div>
 {/if}
 
-{#if expandedRedirects}
+{#if detailsAction}
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div class="redirects-modal" onclick={() => expandedRedirects = null}>
+	<div class="details-modal" onclick={() => detailsAction = null}>
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
-		<div class="redirects-modal-content" onclick={(e) => e.stopPropagation()}>
-			<button class="modal-close" onclick={() => expandedRedirects = null}>×</button>
-			<h3 class="redirects-modal-title">
-				Redirects from Action #{expandedRedirects.actionIndex}
+		<div class="details-modal-content" onclick={(e) => e.stopPropagation()}>
+			<button class="modal-close" onclick={() => detailsAction = null}>×</button>
+			<h3 class="details-modal-title">
+				Action #{detailsAction.index} Details
 			</h3>
-			<div class="redirects-list">
-				{#each expandedRedirects.redirects as redirect, i}
-					<div class="redirect-item">
-						<div class="redirect-number">{i + 1}</div>
-						<div class="redirect-content">
+			<div class="details-action-type">{formatAction(detailsAction.action)}</div>
+			<p class="details-explanation">{detailsAction.action.explanation}</p>
+
+			<div class="navigation-flow">
+				<!-- Before URL -->
+				<div class="flow-item flow-before">
+					<div class="flow-label">Before</div>
+					<a
+						class="flow-url"
+						href={detailsAction.action.url}
+						target="_blank"
+						rel="noopener noreferrer"
+						title={detailsAction.action.url}
+					>
+						{detailsAction.action.url}
+					</a>
+				</div>
+
+				<!-- Redirects (if any) -->
+				{#if detailsAction.action.redirects && detailsAction.action.redirects.length > 0}
+					{#each detailsAction.action.redirects as redirect, i}
+						<div class="flow-arrow">↓</div>
+						<div class="flow-item flow-redirect">
+							<div class="flow-label">Redirect {i + 1}</div>
 							{#if redirect.screenshotPath}
 								<button
-									class="redirect-screenshot"
+									class="flow-screenshot"
 									onclick={() => {
 										expandedScreenshotSrc = redirect.screenshotPath!;
-										expandedRedirects = null;
+										detailsAction = null;
 									}}
 									title="Click to enlarge"
 								>
 									<img src={redirect.screenshotPath} alt="Redirect {i + 1}" />
 								</button>
-							{:else}
-								<div class="redirect-no-screenshot">
-									<span>No screenshot</span>
-									<span class="redirect-no-screenshot-hint">(instant redirect)</span>
-								</div>
 							{/if}
 							<a
-								class="redirect-url"
+								class="flow-url"
 								href={redirect.url}
 								target="_blank"
 								rel="noopener noreferrer"
@@ -354,8 +372,25 @@
 								{redirect.url}
 							</a>
 						</div>
+					{/each}
+				{/if}
+
+				<!-- After URL (if different) -->
+				{#if detailsAction.action.afterUrl}
+					<div class="flow-arrow">↓</div>
+					<div class="flow-item flow-after">
+						<div class="flow-label">After</div>
+						<a
+							class="flow-url"
+							href={detailsAction.action.afterUrl}
+							target="_blank"
+							rel="noopener noreferrer"
+							title={detailsAction.action.afterUrl}
+						>
+							{detailsAction.action.afterUrl}
+						</a>
 					</div>
-				{/each}
+				{/if}
 			</div>
 		</div>
 	</div>
@@ -688,8 +723,8 @@
 		background: rgba(255, 255, 255, 0.3);
 	}
 
-	/* Redirects badge */
-	.redirects-badge {
+	/* Navigation badge */
+	.navigation-badge {
 		padding: 0.2rem 0.4rem;
 		font-size: 0.65rem;
 		background: #fef3c7;
@@ -700,12 +735,12 @@
 		transition: background 0.15s;
 	}
 
-	.redirects-badge:hover {
+	.navigation-badge:hover {
 		background: #fde68a;
 	}
 
-	/* Redirects modal */
-	.redirects-modal {
+	/* Details modal */
+	.details-modal {
 		position: fixed;
 		inset: 0;
 		background: rgba(0, 0, 0, 0.75);
@@ -717,7 +752,7 @@
 		cursor: pointer;
 	}
 
-	.redirects-modal-content {
+	.details-modal-content {
 		position: relative;
 		background: white;
 		border-radius: 8px;
@@ -728,55 +763,92 @@
 		cursor: default;
 	}
 
-	.redirects-modal-content .modal-close {
+	.details-modal-content .modal-close {
 		background: #e5e5e5;
 		color: #333;
 	}
 
-	.redirects-modal-content .modal-close:hover {
+	.details-modal-content .modal-close:hover {
 		background: #d5d5d5;
 	}
 
-	.redirects-modal-title {
-		margin: 0 0 1rem;
+	.details-modal-title {
+		margin: 0 0 0.5rem;
 		font-size: 1rem;
 		color: #333;
 	}
 
-	.redirects-list {
-		display: flex;
-		flex-direction: column;
-		gap: 1rem;
+	.details-action-type {
+		font-weight: 600;
+		font-size: 0.9rem;
+		color: #0066cc;
+		margin-bottom: 0.25rem;
 	}
 
-	.redirect-item {
-		display: flex;
-		gap: 0.75rem;
-		padding: 0.75rem;
-		background: #f9f9f9;
-		border-radius: 6px;
-		border-left: 3px solid #f59e0b;
-	}
-
-	.redirect-number {
-		font-weight: bold;
-		color: #92400e;
+	.details-explanation {
 		font-size: 0.85rem;
-		min-width: 1.5rem;
+		color: #555;
+		margin: 0 0 1rem;
+		line-height: 1.4;
 	}
 
-	.redirect-content {
-		flex: 1;
-		min-width: 0;
+	/* Navigation flow */
+	.navigation-flow {
 		display: flex;
 		flex-direction: column;
 		gap: 0.5rem;
 	}
 
-	.redirect-screenshot {
+	.flow-arrow {
+		text-align: center;
+		color: #999;
+		font-size: 1rem;
+	}
+
+	.flow-item {
+		padding: 0.75rem;
+		border-radius: 6px;
+		border-left: 3px solid #ccc;
+		background: #f9f9f9;
+	}
+
+	.flow-before {
+		border-left-color: #0066cc;
+	}
+
+	.flow-redirect {
+		border-left-color: #f59e0b;
+	}
+
+	.flow-after {
+		border-left-color: #059669;
+	}
+
+	.flow-label {
+		font-size: 0.7rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		color: #666;
+		margin-bottom: 0.25rem;
+	}
+
+	.flow-url {
+		font-size: 0.8rem;
+		color: #0066cc;
+		text-decoration: none;
+		word-break: break-all;
+		display: block;
+	}
+
+	.flow-url:hover {
+		text-decoration: underline;
+	}
+
+	.flow-screenshot {
 		width: 200px;
 		aspect-ratio: 1280 / 800;
 		padding: 0;
+		margin-bottom: 0.5rem;
 		border: 1px solid #ddd;
 		border-radius: 4px;
 		overflow: hidden;
@@ -784,44 +856,14 @@
 		background: #f5f5f5;
 	}
 
-	.redirect-screenshot:hover {
+	.flow-screenshot:hover {
 		border-color: #0066cc;
 	}
 
-	.redirect-screenshot img {
+	.flow-screenshot img {
 		width: 100%;
 		height: 100%;
 		object-fit: cover;
 		object-position: top left;
-	}
-
-	.redirect-no-screenshot {
-		width: 200px;
-		aspect-ratio: 1280 / 800;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		background: #f0f0f0;
-		border: 1px dashed #ccc;
-		border-radius: 4px;
-		color: #888;
-		font-size: 0.75rem;
-	}
-
-	.redirect-no-screenshot-hint {
-		font-size: 0.65rem;
-		color: #aaa;
-	}
-
-	.redirect-url {
-		font-size: 0.75rem;
-		color: #0066cc;
-		text-decoration: none;
-		word-break: break-all;
-	}
-
-	.redirect-url:hover {
-		text-decoration: underline;
 	}
 </style>

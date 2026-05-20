@@ -135,6 +135,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			timestamp: new Date().toISOString(),
 			screenshotPath,
 			url,
+			...(currentUrl && currentUrl !== url && { afterUrl: currentUrl }),
 			...(actionType === 'click' && { coordinates }),
 			...(actionType === 'scroll' && { direction }),
 			...(actionType === 'type' && { text }),
