@@ -32,6 +32,8 @@
 
 	let loading = $state(false);
 	let error = $state<string | null>(null);
+	let replayedUpTo = $state(-1);
+	let replayLoading = $state(false);
 
 	let savedSessions = $state<SessionSummary[]>([]);
 	let loadingSessions = $state(true);
@@ -73,10 +75,39 @@
 			screenshotPath = data.screenshotPath;
 			viewport = data.viewport;
 			isCompleted = false;
+			replayedUpTo = -1;
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'An error occurred';
 		} finally {
 			loading = false;
+		}
+	}
+
+	async function handleReplayAction(index: number) {
+		if (!sessionId || index < 0 || index >= actions.length) return;
+
+		replayLoading = true;
+		error = null;
+
+		try {
+			const response = await fetch(`/api/sessions/${sessionId}/replay`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ actionIndex: index })
+			});
+			const data = await response.json();
+
+			if (!response.ok) {
+				throw new Error(data.error || 'Failed to replay action');
+			}
+
+			screenshotPath = data.screenshotPath;
+			viewport = data.viewport;
+			replayedUpTo = index;
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'An error occurred';
+		} finally {
+			replayLoading = false;
 		}
 	}
 
@@ -186,6 +217,7 @@
 		explanation = '';
 		clickCoordinates = null;
 		typeText = '';
+		replayedUpTo = -1;
 		fetchSavedSessions();
 	}
 
@@ -331,7 +363,12 @@
 					</button>
 
 					{#if actions.length > 0}
-						<SessionHistory {actions} />
+						<SessionHistory
+							{actions}
+							{replayedUpTo}
+							onReplay={handleReplayAction}
+							{replayLoading}
+						/>
 					{/if}
 				</div>
 			</div>

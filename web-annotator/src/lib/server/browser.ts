@@ -133,6 +133,42 @@ export async function executeWait(
 	return `/screenshots/${sessionId}/${actionIndex}.png`;
 }
 
+export async function replaySingleAction(
+	action: {
+		type: string;
+		coordinates?: { x: number; y: number };
+		direction?: 'up' | 'down';
+		text?: string;
+	},
+	sessionId: string,
+	actionIndex: number
+): Promise<string> {
+	const p = await getPage();
+
+	if (action.type === 'click' && action.coordinates) {
+		await p.mouse.click(action.coordinates.x, action.coordinates.y);
+	} else if (action.type === 'scroll' && action.direction) {
+		const scrollY = action.direction === 'down' ? SCROLL_AMOUNT : -SCROLL_AMOUNT;
+		await p.mouse.wheel(0, scrollY);
+	} else if (action.type === 'type' && action.text) {
+		await p.keyboard.type(action.text, { delay: 50 });
+	}
+	// For 'wait' and 'stop' actions, just wait for network idle
+
+	await waitForNetworkIdle(p);
+
+	const screenshotPath = path.join(
+		process.cwd(),
+		'static',
+		'screenshots',
+		sessionId,
+		`replay-${actionIndex}.png`
+	);
+	await p.screenshot({ path: screenshotPath, fullPage: false });
+
+	return `/screenshots/${sessionId}/replay-${actionIndex}.png`;
+}
+
 export async function closeBrowser(): Promise<void> {
 	if (page) {
 		await page.close();

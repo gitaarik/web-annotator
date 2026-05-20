@@ -3,9 +3,12 @@
 
 	interface Props {
 		actions: Action[];
+		replayedUpTo?: number;
+		onReplay?: (index: number) => void;
+		replayLoading?: boolean;
 	}
 
-	let { actions }: Props = $props();
+	let { actions, replayedUpTo = -1, onReplay, replayLoading = false }: Props = $props();
 
 	function formatAction(action: Action): string {
 		switch (action.type) {
@@ -27,6 +30,14 @@
 	function formatTime(timestamp: string): string {
 		return new Date(timestamp).toLocaleTimeString();
 	}
+
+	function canReplay(index: number): boolean {
+		return onReplay !== undefined && index === replayedUpTo + 1 && !replayLoading;
+	}
+
+	function isReplayed(index: number): boolean {
+		return index <= replayedUpTo;
+	}
 </script>
 
 <div class="session-history">
@@ -34,10 +45,26 @@
 
 	<div class="actions-list">
 		{#each actions as action, index}
-			<div class="action-item">
+			<div class="action-item" class:replayed={isReplayed(index)}>
 				<div class="action-header">
 					<span class="action-number">#{index + 1}</span>
 					<span class="action-type">{formatAction(action)}</span>
+					{#if onReplay}
+						<button
+							class="replay-action-btn"
+							onclick={() => onReplay(index)}
+							disabled={!canReplay(index)}
+							title={isReplayed(index) ? 'Already replayed' : canReplay(index) ? 'Replay this action' : 'Replay previous actions first'}
+						>
+							{#if replayLoading && index === replayedUpTo + 1}
+								...
+							{:else if isReplayed(index)}
+								✓
+							{:else}
+								▶
+							{/if}
+						</button>
+					{/if}
 					<span class="action-time">{formatTime(action.timestamp)}</span>
 				</div>
 				<div class="action-explanation">{action.explanation}</div>
@@ -77,6 +104,11 @@
 		border-left: 3px solid #0066cc;
 	}
 
+	.action-item.replayed {
+		border-left-color: #059669;
+		background: #f0fdf4;
+	}
+
 	.action-header {
 		display: flex;
 		align-items: center;
@@ -105,5 +137,25 @@
 		font-size: 0.85rem;
 		color: #555;
 		padding-left: 1.5rem;
+	}
+
+	.replay-action-btn {
+		padding: 0.2rem 0.5rem;
+		font-size: 0.75rem;
+		background: #059669;
+		color: white;
+		border: none;
+		border-radius: 4px;
+		cursor: pointer;
+		min-width: 28px;
+	}
+
+	.replay-action-btn:hover:not(:disabled) {
+		background: #047857;
+	}
+
+	.replay-action-btn:disabled {
+		background: #ccc;
+		cursor: not-allowed;
 	}
 </style>
