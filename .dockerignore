@@ -1,0 +1,11 @@
+node_modules
+browser-service/node_modules
+.svelte-kit
+build
+dist
+*.log
+.git
+.gitignore
+data/sessions/*
+!data/sessions/.gitkeep
+pnpm-lock.yaml

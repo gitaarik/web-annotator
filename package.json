@@ -3,17 +3,25 @@
 	"private": true,
 	"version": "0.0.1",
 	"type": "module",
+	"workspaces": [
+		"browser-service"
+	],
 	"scripts": {
 		"dev": "vite dev",
-		"dev:browser": "pnpm --filter browser-service start",
-		"dev:all": "pnpm dev:browser & sleep 2 && pnpm dev",
+		"dev:browser": "npm start --workspace=browser-service",
+		"dev:all": "npm run dev:browser & sleep 2 && npm run dev",
 		"build": "vite build",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"test": "vitest",
-		"test:run": "vitest run"
+		"test:run": "vitest run",
+		"docker:build": "docker compose build",
+		"docker:up": "docker compose up -d && npm run dev",
+		"docker:down": "docker compose down",
+		"docker:logs": "docker compose logs -f",
+		"docker:browser": "docker compose up"
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-auto": "^7.0.1",

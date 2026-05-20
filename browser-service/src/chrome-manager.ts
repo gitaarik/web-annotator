@@ -31,8 +31,15 @@ export interface ChromeSession {
 
 /**
  * Find Chrome binary on the system.
+ * Checks CHROME_PATH env var first, then searches common locations.
  */
 export function findChromePath(): string | null {
+	// Check environment variable first (useful for Docker)
+	const envPath = process.env.CHROME_PATH;
+	if (envPath && fs.existsSync(envPath)) {
+		return envPath;
+	}
+
 	const platform = os.platform();
 	const candidates: string[] = [];
 
@@ -240,6 +247,11 @@ export async function launchChrome(options: {
 		// Window size
 		'--window-size=1280,800'
 	];
+
+	// Docker/container-specific flags
+	if (process.env.CHROME_NO_SANDBOX === 'true' || process.env.CONTAINER === 'true') {
+		args.push('--no-sandbox', '--disable-dev-shm-usage');
+	}
 
 	if (options.headed === false) {
 		args.push('--headless=new');

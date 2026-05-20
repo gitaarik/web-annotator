@@ -1,0 +1,27 @@
+services:
+  # Browser automation service with Xvfb (virtual display)
+  # This is the main reason for Docker - isolates browser from your desktop
+  browser-service:
+    build:
+      context: ./browser-service
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3001"
+    volumes:
+      # Persist Chrome user data (cookies, login state) between runs
+      - chrome-data:/home/appuser/.browser-service
+    environment:
+      - DISPLAY=:99
+      - HOST=0.0.0.0
+      - PORT=3001
+    # Needed for Chromium shared memory
+    shm_size: '2gb'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/status"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  chrome-data:
