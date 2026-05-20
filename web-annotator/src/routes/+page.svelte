@@ -34,6 +34,13 @@
 	let error = $state<string | null>(null);
 	let replayedUpTo = $state(-1);
 	let replayLoading = $state(false);
+	let deleteLoading = $state(false);
+	type HoverInfo =
+		| { type: 'click'; coordinates: { x: number; y: number } }
+		| { type: 'scroll'; direction: 'up' | 'down' }
+		| { type: 'type'; text: string }
+		| null;
+	let hoverInfo = $state<HoverInfo>(null);
 
 	let savedSessions = $state<SessionSummary[]>([]);
 	let loadingSessions = $state(true);
@@ -52,6 +59,31 @@
 			// Ignore errors fetching sessions
 		} finally {
 			loadingSessions = false;
+		}
+	}
+
+	async function handleDeleteSession(session: SessionSummary, event: Event) {
+		event.stopPropagation();
+
+		if (!confirm(`Delete session "${session.prompt}"?\n\nThis will permanently delete all ${session.actionCount} actions.`)) {
+			return;
+		}
+
+		try {
+			const response = await fetch(`/api/sessions/${session.id}`, {
+				method: 'DELETE',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({})
+			});
+
+			if (!response.ok) {
+				const data = await response.json();
+				throw new Error(data.error || 'Failed to delete session');
+			}
+
+			savedSessions = savedSessions.filter((s) => s.id !== session.id);
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'An error occurred';
 		}
 	}
 
@@ -108,6 +140,53 @@
 			error = e instanceof Error ? e.message : 'An error occurred';
 		} finally {
 			replayLoading = false;
+		}
+	}
+
+	async function handleDeleteAction(index: number) {
+		if (!sessionId || index < 0 || index >= actions.length) return;
+
+		const action = actions[index];
+		const actionDesc = action.type === 'click'
+			? `Click at (${action.coordinates?.x}, ${action.coordinates?.y})`
+			: action.type === 'scroll'
+			? `Scroll ${action.direction}`
+			: action.type === 'type'
+			? `Type "${action.text}"`
+			: action.type === 'wait'
+			? 'Wait'
+			: 'Stop';
+
+		if (!confirm(`Delete action #${index + 1}: ${actionDesc}?`)) {
+			return;
+		}
+
+		deleteLoading = true;
+		error = null;
+
+		try {
+			const response = await fetch(`/api/sessions/${sessionId}`, {
+				method: 'DELETE',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ actionIndex: index })
+			});
+			const data = await response.json();
+
+			if (!response.ok) {
+				throw new Error(data.error || 'Failed to delete action');
+			}
+
+			actions = data.session.actions;
+			isCompleted = !!data.session.finalAnswer;
+
+			// Reset replayedUpTo if we deleted an action at or before the current replay point
+			if (index <= replayedUpTo) {
+				replayedUpTo = index - 1;
+			}
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'An error occurred';
+		} finally {
+			deleteLoading = false;
 		}
 	}
 
@@ -283,18 +362,28 @@
 				<h2>Resume Saved Session</h2>
 				<div class="sessions-list">
 					{#each savedSessions.filter(s => !s.isCompleted) as session}
-						<button
-							class="session-card"
-							onclick={() => resumeSession(session.id)}
-							disabled={loading}
-						>
-							<div class="session-url">{session.url}</div>
-							<div class="session-prompt">{session.prompt}</div>
-							<div class="session-meta">
-								<span>{session.actionCount} actions</span>
-								<span>{new Date(session.createdAt).toLocaleDateString()}</span>
-							</div>
-						</button>
+						<div class="session-row">
+							<button
+								class="session-card"
+								onclick={() => resumeSession(session.id)}
+								disabled={loading}
+							>
+								<div class="session-url">{session.url}</div>
+								<div class="session-prompt">{session.prompt}</div>
+								<div class="session-meta">
+									<span>{session.actionCount} actions</span>
+									<span>{new Date(session.createdAt).toLocaleDateString()}</span>
+								</div>
+							</button>
+							<button
+								class="delete-session-btn"
+								onclick={(e) => handleDeleteSession(session, e)}
+								disabled={loading}
+								title="Delete session"
+							>
+								×
+							</button>
+						</div>
 					{/each}
 				</div>
 			</section>
@@ -306,7 +395,7 @@
 			<p>Total actions: {actions.length}</p>
 			<p>Final answer: {actions[actions.length - 1]?.explanation}</p>
 
-			<SessionHistory {actions} />
+			<SessionHistory {actions} onDelete={handleDeleteAction} {deleteLoading} />
 
 			<button onclick={resetSession}>Start New Session</button>
 		</section>
@@ -329,6 +418,7 @@
 							{viewport}
 							onclick={handleClick}
 							clickEnabled={selectedAction === 'click'}
+							{hoverInfo}
 						/>
 						{#if clickCoordinates && selectedAction === 'click'}
 							<p class="coordinates">Selected: ({clickCoordinates.x}, {clickCoordinates.y})</p>
@@ -361,17 +451,22 @@
 					<button class="execute-btn" onclick={executeAction} disabled={loading || !canExecute}>
 						{loading ? 'Executing...' : 'Execute Action'}
 					</button>
-
-					{#if actions.length > 0}
-						<SessionHistory
-							{actions}
-							{replayedUpTo}
-							onReplay={handleReplayAction}
-							{replayLoading}
-						/>
-					{/if}
 				</div>
 			</div>
+
+			{#if actions.length > 0}
+				<div class="history-section">
+					<SessionHistory
+						{actions}
+						{replayedUpTo}
+						onReplay={handleReplayAction}
+						{replayLoading}
+						onDelete={handleDeleteAction}
+						{deleteLoading}
+						onHoverAction={(info) => (hoverInfo = info)}
+					/>
+				</div>
+			{/if}
 		</section>
 	{/if}
 </main>
@@ -472,6 +567,28 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0.75rem;
+	}
+
+	.session-row {
+		display: flex;
+		gap: 0.5rem;
+		align-items: stretch;
+	}
+
+	.delete-session-btn {
+		padding: 0 0.75rem;
+		font-size: 1.25rem;
+		background: #dc2626;
+		color: white;
+		border: none;
+		border-radius: 8px;
+		cursor: pointer;
+		font-weight: bold;
+		flex-shrink: 0;
+	}
+
+	.delete-session-btn:hover:not(:disabled) {
+		background: #b91c1c;
 	}
 
 	.session-card {
@@ -579,6 +696,12 @@
 		padding: 1rem;
 		font-size: 1.1rem;
 		font-weight: 600;
+	}
+
+	.history-section {
+		margin-top: 1.5rem;
+		padding-top: 1.5rem;
+		border-top: 1px solid #eee;
 	}
 
 	.completed {

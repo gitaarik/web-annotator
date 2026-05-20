@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getSession } from '$lib/server/storage';
+import { getSession, deleteAction, deleteSession } from '$lib/server/storage';
 import { navigateAndScreenshot, getViewport } from '$lib/server/browser';
 
 export const GET: RequestHandler = async ({ params }) => {
@@ -39,4 +39,29 @@ export const POST: RequestHandler = async ({ params }) => {
 		const message = error instanceof Error ? error.message : 'Failed to resume session';
 		return json({ error: message }, { status: 500 });
 	}
+};
+
+export const DELETE: RequestHandler = async ({ params, request }) => {
+	const body = await request.json().catch(() => ({}));
+	const { actionIndex } = body;
+
+	// If actionIndex is provided, delete just that action
+	if (typeof actionIndex === 'number') {
+		const session = await deleteAction(params.id, actionIndex);
+
+		if (!session) {
+			return json({ error: 'Session or action not found' }, { status: 404 });
+		}
+
+		return json({ session });
+	}
+
+	// Otherwise, delete the entire session
+	const deleted = await deleteSession(params.id);
+
+	if (!deleted) {
+		return json({ error: 'Session not found' }, { status: 404 });
+	}
+
+	return json({ success: true });
 };

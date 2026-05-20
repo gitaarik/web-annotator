@@ -61,6 +61,37 @@ export async function addAction(
 	return session;
 }
 
+export async function deleteSession(sessionId: string): Promise<boolean> {
+	try {
+		await fs.unlink(getSessionPath(sessionId));
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+export async function deleteAction(
+	sessionId: string,
+	actionIndex: number
+): Promise<AnnotationSession | null> {
+	const session = await getSession(sessionId);
+	if (!session) return null;
+
+	if (actionIndex < 0 || actionIndex >= session.actions.length) {
+		return null;
+	}
+
+	session.actions.splice(actionIndex, 1);
+
+	// If we deleted a 'stop' action, clear the finalAnswer
+	if (session.finalAnswer && !session.actions.some((a) => a.type === 'stop')) {
+		delete session.finalAnswer;
+	}
+
+	await fs.writeFile(getSessionPath(sessionId), JSON.stringify(session, null, 2));
+	return session;
+}
+
 export async function listSessions(): Promise<AnnotationSession[]> {
 	await ensureDataDir();
 	const files = await fs.readdir(DATA_DIR);
