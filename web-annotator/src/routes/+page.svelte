@@ -194,6 +194,51 @@
 		}
 	}
 
+	async function updateActionHandler() {
+		if (editingActionIndex === null || !sessionId || !selectedAction || !explanation.trim()) {
+			return;
+		}
+
+		loading = true;
+		error = null;
+
+		const actionUpdate: Record<string, unknown> = {
+			type: selectedAction,
+			explanation
+		};
+
+		if (selectedAction === 'click' && clickCoordinates) {
+			actionUpdate.coordinates = clickCoordinates;
+		} else if (selectedAction === 'scroll') {
+			actionUpdate.direction = scrollDirection;
+		} else if (selectedAction === 'type') {
+			actionUpdate.text = typeText;
+		}
+
+		try {
+			const response = await fetch(`/api/sessions/${sessionId}`, {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					actionIndex: editingActionIndex,
+					action: actionUpdate
+				})
+			});
+
+			const data = await response.json();
+
+			if (!response.ok) {
+				throw new Error(data.error || 'Failed to update action');
+			}
+
+			actions = data.session.actions;
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'An error occurred';
+		} finally {
+			loading = false;
+		}
+	}
+
 	async function startSession() {
 		if (!url || !prompt || !plan) {
 			error = 'Please enter URL, prompt, and plan';
@@ -303,6 +348,40 @@
 		replayedUpTo = -1;
 		fetchSavedSessions();
 	}
+
+	// Check if we're in edit mode (replaying a session with upcoming actions)
+	let nextActionIndex = $derived(
+		actions.length > 0 && replayedUpTo < actions.length - 1 ? replayedUpTo + 1 : null
+	);
+
+	let isEditMode = $derived(nextActionIndex !== null);
+
+	// Auto-populate form with next action when in edit mode
+	$effect(() => {
+		if (nextActionIndex !== null) {
+			const action = actions[nextActionIndex];
+			editingActionIndex = nextActionIndex;
+			selectedAction = action.type;
+			explanation = action.explanation;
+
+			if (action.type === 'click' && action.coordinates) {
+				clickCoordinates = action.coordinates;
+			} else if (action.type === 'scroll' && action.direction) {
+				scrollDirection = action.direction;
+			} else if (action.type === 'type' && action.text) {
+				typeText = action.text;
+			}
+		} else {
+			// Clear edit mode when no more actions to replay
+			if (editingActionIndex !== null) {
+				editingActionIndex = null;
+				selectedAction = null;
+				explanation = '';
+				clickCoordinates = null;
+				typeText = '';
+			}
+		}
+	});
 
 	let canExecute = $derived(
 		selectedAction !== null &&
@@ -459,9 +538,15 @@
 							: 'Explain why you are taking this action...'}
 					/>
 
-					<button class="execute-btn" onclick={executeAction} disabled={loading || !canExecute}>
-						{loading ? 'Executing...' : 'Execute Action'}
-					</button>
+					{#if isEditMode}
+						<button class="update-btn" onclick={updateActionHandler} disabled={loading || !canExecute}>
+							{loading ? 'Updating...' : 'Update Action'}
+						</button>
+					{:else}
+						<button class="execute-btn" onclick={executeAction} disabled={loading || !canExecute}>
+							{loading ? 'Executing...' : 'Execute Action'}
+						</button>
+					{/if}
 				</div>
 			</div>
 
@@ -475,6 +560,7 @@
 						onDelete={handleDeleteAction}
 						{deleteLoading}
 						onHoverAction={(info) => (hoverInfo = info)}
+						editingIndex={editingActionIndex}
 					/>
 				</div>
 			{/if}
@@ -743,6 +829,18 @@
 		padding: 1rem;
 		font-size: 1.1rem;
 		font-weight: 600;
+	}
+
+	.update-btn {
+		width: 100%;
+		padding: 1rem;
+		font-size: 1.1rem;
+		font-weight: 600;
+		background: #8b5cf6;
+	}
+
+	.update-btn:hover:not(:disabled) {
+		background: #7c3aed;
 	}
 
 	.history-section {

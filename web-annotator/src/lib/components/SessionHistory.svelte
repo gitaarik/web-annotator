@@ -15,6 +15,7 @@
 		onDelete?: (index: number) => void;
 		deleteLoading?: boolean;
 		onHoverAction?: (info: HoverInfo) => void;
+		editingIndex?: number | null;
 	}
 
 	let {
@@ -24,7 +25,8 @@
 		replayLoading = false,
 		onDelete,
 		deleteLoading = false,
-		onHoverAction
+		onHoverAction,
+		editingIndex = null
 	}: Props = $props();
 
 	function formatAction(action: Action): string {
@@ -87,6 +89,7 @@
 				class="action-item"
 				class:replayed={isReplayed(index)}
 				class:next-playable={isNextPlayable(index)}
+				class:editing={editingIndex === index}
 				onmouseenter={() => handleMouseEnter(action, index)}
 				onmouseleave={handleMouseLeave}
 			>
@@ -173,6 +176,12 @@
 	.action-item.next-playable {
 		border-top-color: #f59e0b;
 		box-shadow: 0 0 0 2px #fef3c7;
+	}
+
+	.action-item.editing {
+		border-top-color: #8b5cf6;
+		box-shadow: 0 0 0 2px #ddd6fe;
+		background: #faf5ff;
 	}
 
 	.action-top {

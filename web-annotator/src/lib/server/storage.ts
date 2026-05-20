@@ -70,6 +70,30 @@ export async function deleteSession(sessionId: string): Promise<boolean> {
 	}
 }
 
+export async function updateAction(
+	sessionId: string,
+	actionIndex: number,
+	action: Partial<Action>
+): Promise<AnnotationSession | null> {
+	const session = await getSession(sessionId);
+	if (!session) return null;
+
+	if (actionIndex < 0 || actionIndex >= session.actions.length) {
+		return null;
+	}
+
+	// Merge the updates into the existing action
+	session.actions[actionIndex] = { ...session.actions[actionIndex], ...action };
+
+	// Update finalAnswer if this is a stop action
+	if (session.actions[actionIndex].type === 'stop') {
+		session.finalAnswer = session.actions[actionIndex].explanation;
+	}
+
+	await fs.writeFile(getSessionPath(sessionId), JSON.stringify(session, null, 2));
+	return session;
+}
+
 export async function deleteAction(
 	sessionId: string,
 	actionIndex: number

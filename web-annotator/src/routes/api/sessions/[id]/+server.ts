@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getSession, deleteAction, deleteSession } from '$lib/server/storage';
+import { getSession, deleteAction, deleteSession, updateAction } from '$lib/server/storage';
 import { navigateAndScreenshot, getViewport } from '$lib/server/browser';
 
 export const GET: RequestHandler = async ({ params }) => {
@@ -64,4 +64,20 @@ export const DELETE: RequestHandler = async ({ params, request }) => {
 	}
 
 	return json({ success: true });
+};
+
+export const PATCH: RequestHandler = async ({ params, request }) => {
+	const { actionIndex, action } = await request.json();
+
+	if (typeof actionIndex !== 'number' || !action) {
+		return json({ error: 'actionIndex and action are required' }, { status: 400 });
+	}
+
+	const session = await updateAction(params.id, actionIndex, action);
+
+	if (!session) {
+		return json({ error: 'Session or action not found' }, { status: 404 });
+	}
+
+	return json({ session });
 };
