@@ -57,6 +57,15 @@
 	let pendingAction = $state<(() => Promise<void>) | null>(null);
 	let queuedReplayIndex = $state<number | null>(null);
 
+	// Preview of action being executed (shown in history with loading state)
+	let pendingActionPreview = $state<{
+		type: string;
+		explanation: string;
+		coordinates?: { x: number; y: number };
+		direction?: 'up' | 'down';
+		text?: string;
+	} | null>(null);
+
 	async function pollScreenshot() {
 		if (!session.id || !tabId) return;
 		try {
@@ -604,6 +613,16 @@
 	) {
 		actionLoading = true;
 		error = null;
+
+		// Show preview in history while executing
+		pendingActionPreview = {
+			type: params.actionType,
+			explanation: params.explanation,
+			coordinates: params.coordinates ?? undefined,
+			direction: params.direction,
+			text: params.text || undefined
+		};
+
 		startScreenshotPolling();
 
 		try {
@@ -638,6 +657,7 @@
 		} finally {
 			stopScreenshotPolling();
 			actionLoading = false;
+			pendingActionPreview = null;
 
 			// Run pending action if queued
 			if (pendingAction) {
@@ -695,7 +715,7 @@
 	);
 
 	// Only disable buttons if there's already a pending action queued (allow one queue)
-	let isLoading = $derived(tabLoading || pendingAction !== null);
+	let isLoading = $derived(actionLoading || tabLoading || pendingAction !== null);
 
 	// When editing, show the action's screenshot; otherwise show current browser state
 	let displayScreenshot = $derived(
@@ -792,6 +812,7 @@
 							onAddNew={handleAddNew}
 							onNavigateTo={handleNavigateTo}
 							{navigatingIndex}
+							{pendingActionPreview}
 						/>
 						{#snippet failed()}
 							<div class="error">Failed to render session history. Please refresh the page.</div>

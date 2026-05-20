@@ -36,6 +36,13 @@
 		onAddNew?: () => void;
 		onNavigateTo?: (index: number, url: string) => void;
 		navigatingIndex?: number | null;
+		pendingActionPreview?: {
+			type: string;
+			explanation: string;
+			coordinates?: { x: number; y: number };
+			direction?: 'up' | 'down';
+			text?: string;
+		} | null;
 	}
 
 	let {
@@ -55,7 +62,8 @@
 		isAddingNew = false,
 		onAddNew,
 		onNavigateTo,
-		navigatingIndex = null
+		navigatingIndex = null,
+		pendingActionPreview = null
 	}: Props = $props();
 
 	function canReplay(index: number): boolean {
@@ -325,7 +333,34 @@
 			</div>
 		{/each}
 
-		{#if currentScreenshot}
+		{#if pendingActionPreview}
+			<div class="action-item pending-action">
+				<div class="action-top">
+					<span class="action-number">#{actions.length}</span>
+					<span class="spinner"></span>
+				</div>
+				<div
+					class="screenshot-thumbnail pending-thumbnail"
+					style="aspect-ratio: {viewport.width} / {viewport.height};"
+				>
+					<span class="pending-icon">...</span>
+				</div>
+				<div class="action-type">
+					{pendingActionPreview.type.charAt(0).toUpperCase() + pendingActionPreview.type.slice(1)}
+					{#if pendingActionPreview.coordinates}
+						({pendingActionPreview.coordinates.x}, {pendingActionPreview.coordinates.y})
+					{:else if pendingActionPreview.direction}
+						{pendingActionPreview.direction}
+					{:else if pendingActionPreview.text}
+						"{pendingActionPreview.text.slice(0, 20)}{pendingActionPreview.text.length > 20 ? '...' : ''}"
+					{/if}
+				</div>
+				<div class="action-explanation">{pendingActionPreview.explanation}</div>
+				<div class="action-url-container"></div>
+			</div>
+		{/if}
+
+		{#if currentScreenshot && !pendingActionPreview}
 			<div class="action-item current-state" class:adding={isAddingNew}>
 				<div class="action-top">
 					<span class="action-number">Now</span>
@@ -554,6 +589,45 @@
 	.action-item.current-state {
 		border-top-color: var(--color-cyan);
 		background: var(--color-cyan-bg);
+	}
+
+	.action-item.pending-action {
+		border-top-color: var(--color-primary);
+		background: var(--color-primary-bg, #eff6ff);
+		animation: pulse-bg 1.5s ease-in-out infinite;
+	}
+
+	@keyframes pulse-bg {
+		0%, 100% {
+			opacity: 1;
+		}
+		50% {
+			opacity: 0.7;
+		}
+	}
+
+	.pending-thumbnail {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: var(--color-bg-tertiary);
+		border: 1px solid var(--color-border);
+		border-radius: 4px;
+	}
+
+	.pending-icon {
+		font-size: 1.5rem;
+		color: var(--color-text-muted);
+		animation: pulse-text 1s ease-in-out infinite;
+	}
+
+	@keyframes pulse-text {
+		0%, 100% {
+			opacity: 0.4;
+		}
+		50% {
+			opacity: 1;
+		}
 	}
 
 	.action-item.current-state.adding {
