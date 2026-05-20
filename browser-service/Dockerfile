@@ -14,6 +14,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xdotool \
     # X11 utilities for window management
     x11-utils \
+    # VNC server to expose the virtual display
+    x11vnc \
+    # noVNC for browser-based VNC access
+    novnc websockify \
+    # Mesa for software WebGL rendering (avoids bot detection)
+    libgl1-mesa-dri \
+    libgl1-mesa-glx \
+    libegl1-mesa \
     # Fonts for proper text rendering
     fonts-liberation \
     fonts-noto-color-emoji \
@@ -53,8 +61,11 @@ ENV PORT=3001
 ENV CHROME_PATH=/usr/bin/chromium
 # Enable container-specific Chrome flags (--no-sandbox, --disable-dev-shm-usage)
 ENV CHROME_NO_SANDBOX=true
+# Force software rendering for WebGL (Mesa llvmpipe)
+ENV LIBGL_ALWAYS_SOFTWARE=1
+ENV GALLIUM_DRIVER=llvmpipe
 
-# Expose the API port
-EXPOSE 3001
+# Expose the API port and noVNC port
+EXPOSE 3001 6080
 
 ENTRYPOINT ["/docker-entrypoint.sh"]

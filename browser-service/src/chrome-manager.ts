@@ -253,6 +253,17 @@ export async function launchChrome(options: {
 		args.push('--no-sandbox', '--disable-dev-shm-usage');
 	}
 
+	// Enable WebGL with software rendering (Mesa llvmpipe)
+	if (process.env.LIBGL_ALWAYS_SOFTWARE === '1') {
+		args.push(
+			'--enable-webgl',
+			'--use-gl=angle',
+			'--use-angle=swiftshader',
+			'--enable-features=Vulkan',
+			'--ignore-gpu-blocklist'
+		);
+	}
+
 	if (options.headed === false) {
 		args.push('--headless=new');
 	}

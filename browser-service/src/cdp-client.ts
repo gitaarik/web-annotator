@@ -162,10 +162,9 @@ export class CdpClient {
 				configurable: true
 			});
 
-			// Hide automation-related properties from window
-			delete window.cdc_adoQpoasnfa76pfcZLmcfl_Array;
-			delete window.cdc_adoQpoasnfa76pfcZLmcfl_Promise;
-			delete window.cdc_adoQpoasnfa76pfcZLmcfl_Symbol;
+			// Hide automation-related properties from window (Chrome DevTools Protocol markers)
+			const cdcProps = Object.keys(window).filter(k => k.startsWith('cdc_') || k.startsWith('$cdc_'));
+			cdcProps.forEach(prop => { try { delete window[prop]; } catch(e) {} });
 
 			// Fix permissions API to not reveal automation
 			const originalQuery = window.navigator.permissions?.query?.bind(window.navigator.permissions);
@@ -179,18 +178,109 @@ export class CdpClient {
 			}
 
 			// Fix plugins to look more realistic (headless Chrome has empty plugins)
-			Object.defineProperty(navigator, 'plugins', {
-				get: () => [
-					{ name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
-					{ name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '' },
-					{ name: 'Native Client', filename: 'internal-nacl-plugin', description: '' }
-				],
-				configurable: true
+			const pluginData = [
+				{ name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format', length: 1 },
+				{ name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '', length: 1 },
+				{ name: 'Native Client', filename: 'internal-nacl-plugin', description: '', length: 2 }
+			];
+			const pluginArray = Object.create(PluginArray.prototype);
+			pluginData.forEach((p, i) => {
+				const plugin = Object.create(Plugin.prototype);
+				Object.defineProperties(plugin, {
+					name: { value: p.name, enumerable: true },
+					filename: { value: p.filename, enumerable: true },
+					description: { value: p.description, enumerable: true },
+					length: { value: p.length, enumerable: true }
+				});
+				pluginArray[i] = plugin;
+				pluginArray[p.name] = plugin;
 			});
+			Object.defineProperty(pluginArray, 'length', { value: pluginData.length });
+			Object.defineProperty(navigator, 'plugins', { get: () => pluginArray, configurable: true });
+
+			// Fix mimeTypes
+			const mimeTypeData = [
+				{ type: 'application/pdf', description: 'Portable Document Format', suffixes: 'pdf' },
+				{ type: 'text/pdf', description: 'Portable Document Format', suffixes: 'pdf' }
+			];
+			const mimeTypeArray = Object.create(MimeTypeArray.prototype);
+			mimeTypeData.forEach((m, i) => {
+				const mimeType = Object.create(MimeType.prototype);
+				Object.defineProperties(mimeType, {
+					type: { value: m.type, enumerable: true },
+					description: { value: m.description, enumerable: true },
+					suffixes: { value: m.suffixes, enumerable: true },
+					enabledPlugin: { value: pluginArray[0], enumerable: true }
+				});
+				mimeTypeArray[i] = mimeType;
+				mimeTypeArray[m.type] = mimeType;
+			});
+			Object.defineProperty(mimeTypeArray, 'length', { value: mimeTypeData.length });
+			Object.defineProperty(navigator, 'mimeTypes', { get: () => mimeTypeArray, configurable: true });
 
 			// Fix languages
 			Object.defineProperty(navigator, 'languages', {
 				get: () => ['en-US', 'en'],
+				configurable: true
+			});
+
+			// Hardware concurrency (realistic value)
+			Object.defineProperty(navigator, 'hardwareConcurrency', {
+				get: () => 8,
+				configurable: true
+			});
+
+			// Device memory (realistic value)
+			Object.defineProperty(navigator, 'deviceMemory', {
+				get: () => 8,
+				configurable: true
+			});
+
+			// Fix chrome object (missing in some automation setups)
+			if (!window.chrome) {
+				window.chrome = {};
+			}
+			if (!window.chrome.runtime) {
+				window.chrome.runtime = {
+					connect: () => {},
+					sendMessage: () => {},
+					onMessage: { addListener: () => {}, removeListener: () => {} },
+					onConnect: { addListener: () => {}, removeListener: () => {} },
+					id: undefined
+				};
+			}
+
+			// WebGL vendor/renderer - make consistent with real Chrome on Linux
+			const getParameterProto = WebGLRenderingContext.prototype.getParameter;
+			WebGLRenderingContext.prototype.getParameter = function(param) {
+				if (param === 37445) return 'Google Inc. (NVIDIA)'; // UNMASKED_VENDOR_WEBGL
+				if (param === 37446) return 'ANGLE (NVIDIA, NVIDIA GeForce GTX 1080 Direct3D11 vs_5_0 ps_5_0, D3D11)'; // UNMASKED_RENDERER_WEBGL
+				return getParameterProto.call(this, param);
+			};
+			const getParameter2Proto = WebGL2RenderingContext.prototype.getParameter;
+			WebGL2RenderingContext.prototype.getParameter = function(param) {
+				if (param === 37445) return 'Google Inc. (NVIDIA)';
+				if (param === 37446) return 'ANGLE (NVIDIA, NVIDIA GeForce GTX 1080 Direct3D11 vs_5_0 ps_5_0, D3D11)';
+				return getParameter2Proto.call(this, param);
+			};
+
+			// Prevent detection via toString
+			const originalToString = Function.prototype.toString;
+			Function.prototype.toString = function() {
+				if (this === navigator.permissions.query) {
+					return 'function query() { [native code] }';
+				}
+				return originalToString.call(this);
+			};
+
+			// Fix connection type (automation often missing)
+			if (navigator.connection) {
+				Object.defineProperty(navigator.connection, 'rtt', { get: () => 50, configurable: true });
+			}
+
+			// Notification permission consistency
+			Object.defineProperty(Notification, 'permission', {
+				get: () => 'default',
 				configurable: true
 			});
 		`;
@@ -356,6 +446,18 @@ export class CdpClient {
 			y: scrollY,
 			deltaX,
 			deltaY
+		});
+	}
+
+	/**
+	 * Move mouse to coordinates (CDP method).
+	 * Triggers hover effects on elements.
+	 */
+	async cdpMove(x: number, y: number): Promise<void> {
+		await this.send('Input.dispatchMouseEvent', {
+			type: 'mouseMoved',
+			x,
+			y
 		});
 	}
 

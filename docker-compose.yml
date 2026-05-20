@@ -1,12 +1,13 @@
 services:
   # Browser automation service with Xvfb (virtual display)
-  # This is the main reason for Docker - isolates browser from your desktop
+  # noVNC provides browser-based view at http://localhost:6080/vnc.html
   browser-service:
     build:
       context: ./browser-service
       dockerfile: Dockerfile
     ports:
       - "3001:3001"
+      - "6080:6080"  # noVNC web interface
     volumes:
       # Persist Chrome user data (cookies, login state) between runs
       - chrome-data:/home/appuser/.browser-service
