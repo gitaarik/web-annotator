@@ -7,6 +7,8 @@
 	let expandedAction: Action | null = $state(null);
 	let expandedScreenshotSrc: string | null = $state(null);
 	let detailsAction: { index: number; action: Action } | null = $state(null);
+	let actionsListEl: HTMLDivElement | undefined = $state();
+	let prevActionsLength = $state(0);
 
 	async function copyUrl(url: string) {
 		await copyToClipboard(url);
@@ -26,10 +28,14 @@
 		loadingIndex?: number | null;
 		queuedIndex?: number | null;
 		onDelete?: (index: number) => void;
-		deleteLoading?: boolean;
+		deletingIndex?: number | null;
 		onHoverAction?: (info: HoverInfo) => void;
 		editingIndex?: number | null;
 		onSelectForEdit?: (index: number) => void;
+		isAddingNew?: boolean;
+		onAddNew?: () => void;
+		onNavigateTo?: (index: number, url: string) => void;
+		navigatingIndex?: number | null;
 	}
 
 	let {
@@ -42,10 +48,14 @@
 		loadingIndex = null,
 		queuedIndex = null,
 		onDelete,
-		deleteLoading = false,
+		deletingIndex = null,
 		onHoverAction,
 		editingIndex = null,
-		onSelectForEdit
+		onSelectForEdit,
+		isAddingNew = false,
+		onAddNew,
+		onNavigateTo,
+		navigatingIndex = null
 	}: Props = $props();
 
 	function canReplay(index: number): boolean {
@@ -72,6 +82,37 @@
 
 	function isNextPlayable(index: number): boolean {
 		return onReplay !== undefined && index === replayedUpTo + 1;
+	}
+
+	function isNavigating(index: number): boolean {
+		return navigatingIndex === index;
+	}
+
+	// Check if this action starts on a new URL (different from previous action's ending URL)
+	function startsOnNewUrl(index: number): boolean {
+		const action = actions[index];
+		if (!action?.url) return false;
+
+		// First action always starts on a "new" URL
+		if (index === 0) return true;
+
+		const prevAction = actions[index - 1];
+		if (!prevAction) return true;
+
+		// Compare with previous action's ending URL (afterUrl if navigated, otherwise url)
+		const prevEndUrl = prevAction.afterUrl ?? prevAction.url;
+		return action.url !== prevEndUrl;
+	}
+
+	function canNavigateTo(index: number): boolean {
+		// Can navigate if not already replayed past this point and not currently loading
+		return (
+			onNavigateTo !== undefined &&
+			startsOnNewUrl(index) &&
+			index > replayedUpTo &&
+			loadingIndex === null &&
+			navigatingIndex === null
+		);
 	}
 
 	let isHoveringNextAction = $state(false);
@@ -103,6 +144,29 @@
 		}
 	}
 
+	// Auto-scroll to the right when new actions are added and user is near the scroll limit
+	$effect(() => {
+		const currentLength = actions.length;
+		const wasAdded = currentLength > prevActionsLength;
+		prevActionsLength = currentLength;
+
+		if (wasAdded && actionsListEl) {
+			// Check if user is already near the right edge (within 200px of the end)
+			const scrollRight = actionsListEl.scrollWidth - actionsListEl.scrollLeft - actionsListEl.clientWidth;
+			const nearEnd = scrollRight < 200;
+
+			if (nearEnd) {
+				// Use requestAnimationFrame to ensure DOM has updated
+				requestAnimationFrame(() => {
+					actionsListEl?.scrollTo({
+						left: actionsListEl.scrollWidth,
+						behavior: 'smooth'
+					});
+				});
+			}
+		}
+	});
+
 	// Show overlay for loading action automatically, with cooldown to prevent spurious hover
 	$effect(() => {
 		if (!onHoverAction) return;
@@ -128,7 +192,7 @@
 		<span class="history-title">History ({actions.length})</span>
 	</div>
 
-	<div class="actions-list">
+	<div class="actions-list" bind:this={actionsListEl}>
 		{#each actions as action, index}
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
@@ -201,7 +265,7 @@
 						{/if}
 					</button>
 				{/if}
-				{#if onReplay || (onDelete && index === actions.length - 1) || onSelectForEdit}
+				{#if onReplay || (onDelete && index === actions.length - 1) || onSelectForEdit || onNavigateTo}
 					<div class="action-buttons">
 						{#if onReplay}
 							<button
@@ -226,6 +290,21 @@
 								{/if}
 							</button>
 						{/if}
+						{#if onNavigateTo && startsOnNewUrl(index) && !isReplayed(index)}
+							<button
+								class="navigate-action-btn"
+								class:loading={isNavigating(index)}
+								onclick={() => onNavigateTo(index, actions[index].url)}
+								disabled={!canNavigateTo(index)}
+								title={isNavigating(index) ? 'Navigating...' : `Navigate directly to this URL`}
+							>
+								{#if isNavigating(index)}
+									<span class="spinner"></span>
+								{:else}
+									↗
+								{/if}
+							</button>
+						{/if}
 						{#if onSelectForEdit && editingIndex !== index}
 							<button
 								class="edit-action-btn"
@@ -235,15 +314,15 @@
 								✎
 							</button>
 						{/if}
-						{#if onDelete && index === actions.length - 1}
+						{#if onDelete}
 							<button
 								class="delete-action-btn"
-								class:loading={deleteLoading}
+								class:loading={deletingIndex === index}
 								onclick={() => onDelete(index)}
-								disabled={deleteLoading}
+								disabled={deletingIndex !== null}
 								title="Delete this action"
 							>
-								{#if deleteLoading}
+								{#if deletingIndex === index}
 									<span class="spinner"></span>
 								{:else}
 									×
@@ -256,7 +335,7 @@
 		{/each}
 
 		{#if currentScreenshot}
-			<div class="action-item current-state">
+			<div class="action-item current-state" class:adding={isAddingNew}>
 				<div class="action-top">
 					<span class="action-number">Now</span>
 				</div>
@@ -269,7 +348,13 @@
 					<img src={currentScreenshot} alt="Current state" />
 				</button>
 				<div class="action-type">Current State</div>
-				<div class="action-explanation">Waiting for next action...</div>
+				<div class="action-explanation">
+					{#if isAddingNew}
+						Adding new action...
+					{:else}
+						Waiting for next action...
+					{/if}
+				</div>
 				<div class="action-url-container">
 					{#if currentUrl}
 						{@const urlParts = formatUrlParts(currentUrl)}
@@ -292,6 +377,17 @@
 						</button>
 					{/if}
 				</div>
+				{#if onAddNew && !isAddingNew}
+					<div class="action-buttons">
+						<button
+							class="add-action-btn"
+							onclick={onAddNew}
+							title="Add a new action"
+						>
+							+ Add
+						</button>
+					</div>
+				{/if}
 			</div>
 		{/if}
 	</div>
@@ -469,6 +565,11 @@
 		background: var(--color-cyan-bg);
 	}
 
+	.action-item.current-state.adding {
+		border-top-color: var(--color-success);
+		box-shadow: 0 0 0 2px var(--color-success-bg);
+	}
+
 	.action-top {
 		display: flex;
 		justify-content: space-between;
@@ -615,6 +716,50 @@
 
 	.edit-action-btn:hover {
 		background: var(--color-purple-hover);
+	}
+
+	.navigate-action-btn {
+		flex: 1;
+		padding: 0.4rem 0.5rem;
+		font-size: 0.85rem;
+		background: var(--color-info, #3b82f6);
+		color: white;
+		border: none;
+		border-radius: 4px;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 28px;
+	}
+
+	.navigate-action-btn:hover:not(:disabled) {
+		background: var(--color-info-hover, #2563eb);
+	}
+
+	.navigate-action-btn:disabled {
+		background: var(--color-disabled);
+		cursor: not-allowed;
+	}
+
+	.add-action-btn {
+		flex: 1;
+		padding: 0.4rem 0.5rem;
+		font-size: 0.85rem;
+		background: var(--color-success);
+		color: white;
+		border: none;
+		border-radius: 4px;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 28px;
+		font-weight: 600;
+	}
+
+	.add-action-btn:hover {
+		background: var(--color-success-hover);
 	}
 
 	.delete-action-btn {

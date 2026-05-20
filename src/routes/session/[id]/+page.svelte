@@ -36,9 +36,10 @@
 	let browserLoading = $state(true);
 	let actionLoading = $state(false);
 	let replayLoading = $state(false);
-	let deleteLoading = $state(false);
+	let deletingIndex = $state<number | null>(null);
 	let refreshLoading = $state(false);
 	let tabLoading = $state(false);
+	let navigatingIndex = $state<number | null>(null);
 
 	let error = $state<string | null>(null);
 	let replayedUpTo = $state(-1);
@@ -394,7 +395,7 @@
 			return;
 		}
 
-		deleteLoading = true;
+		deletingIndex = index;
 		error = null;
 
 		try {
@@ -411,7 +412,38 @@
 		} catch (e) {
 			error = getErrorMessage(e);
 		} finally {
-			deleteLoading = false;
+			deletingIndex = null;
+		}
+	}
+
+	async function handleNavigateTo(index: number, url: string) {
+		if (!session.id || !tabId || !url) return;
+
+		navigatingIndex = index;
+		error = null;
+
+		try {
+			const response = await apiRequest<{
+				screenshotPath: string;
+				currentUrl?: string;
+				viewport: { width: number; height: number };
+				tabId: string;
+			}>(`/api/sessions/${session.id}/navigate`, {
+				method: 'POST',
+				body: { tabId, url }
+			});
+
+			screenshotPath = response.screenshotPath;
+			currentUrl = response.currentUrl ?? null;
+			viewport = response.viewport;
+			tabId = response.tabId;
+
+			// Set replayedUpTo to index - 1 so this action becomes the next playable
+			replayedUpTo = index - 1;
+		} catch (e) {
+			error = getErrorMessage(e);
+		} finally {
+			navigatingIndex = null;
 		}
 	}
 
@@ -443,7 +475,7 @@
 			);
 
 			actions = response.session.actions;
-			const indexToReplay = editingActionIndex;
+			const startIndex = editingActionIndex;
 
 			// Reset manual edit mode before replaying
 			manualEditMode = false;
@@ -453,7 +485,13 @@
 			clickCoordinates = null;
 			typeText = '';
 
-			await handleReplayAction(indexToReplay);
+			// Replay from the edited action through all remaining actions
+			for (let i = startIndex; i < actions.length; i++) {
+				await handleReplayAction(i);
+			}
+
+			// Reset replay state to exit replay mode and enter "add new" mode
+			replayedUpTo = -1;
 		} catch (e) {
 			error = getErrorMessage(e);
 		} finally {
@@ -586,6 +624,12 @@
 			if (response.session.tabs) {
 				tabs = response.session.tabs;
 			}
+
+			// Ensure form is cleared after successful action
+			selectedAction = null;
+			explanation = '';
+			clickCoordinates = null;
+			typeText = '';
 		} catch (e) {
 			error = getErrorMessage(e);
 		} finally {
@@ -613,6 +657,21 @@
 
 	// Edit mode is active when either replaying or manually editing
 	let isEditMode = $derived(nextActionIndex !== null || manualEditMode);
+
+	// Adding new action mode - not editing any existing action
+	let isAddingNew = $derived(!isEditMode && !actionLoading && !replayLoading);
+
+	function handleAddNew() {
+		// Clear any edit state and prepare for adding a new action
+		manualEditMode = false;
+		editingActionIndex = null;
+		replayedUpTo = -1; // Exit replay mode to enable "add new" mode
+		selectedAction = null;
+		explanation = '';
+		clickCoordinates = null;
+		typeText = '';
+		error = null;
+	}
 
 	// Auto-populate form with next action when in replay edit mode (not manual edit)
 	$effect(() => {
@@ -709,7 +768,7 @@
 			<p>Final answer: {actions[actions.length - 1]?.explanation}</p>
 
 			<svelte:boundary onerror={(e) => error = `History error: ${getErrorMessage(e)}`}>
-				<SessionHistory {actions} {viewport} currentScreenshot={screenshotPath} {currentUrl} onDelete={handleDeleteAction} {deleteLoading} />
+				<SessionHistory {actions} {viewport} currentScreenshot={screenshotPath} {currentUrl} onDelete={handleDeleteAction} {deletingIndex} />
 				{#snippet failed()}
 					<div class="error">Failed to render session history. Please refresh the page.</div>
 				{/snippet}
@@ -752,10 +811,14 @@
 							loadingIndex={replayLoading ? replayedUpTo : null}
 							queuedIndex={queuedReplayIndex}
 							onDelete={handleDeleteAction}
-							{deleteLoading}
+							{deletingIndex}
 							onHoverAction={(info) => (hoverInfo = info)}
 							editingIndex={editingActionIndex}
 							onSelectForEdit={handleSelectForEdit}
+							{isAddingNew}
+							onAddNew={handleAddNew}
+							onNavigateTo={handleNavigateTo}
+							{navigatingIndex}
 						/>
 						{#snippet failed()}
 							<div class="error">Failed to render session history. Please refresh the page.</div>
