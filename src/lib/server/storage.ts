@@ -4,11 +4,21 @@ import type { AnnotationSession, Action, Tab } from '$lib/types';
 
 const DATA_DIR = path.join(process.cwd(), 'data', 'sessions');
 
+// UUID v4 format: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isValidSessionId(sessionId: string): boolean {
+	return UUID_REGEX.test(sessionId);
+}
+
 async function ensureDataDir(): Promise<void> {
 	await fs.mkdir(DATA_DIR, { recursive: true });
 }
 
 function getSessionPath(sessionId: string): string {
+	if (!isValidSessionId(sessionId)) {
+		throw new Error('Invalid session ID');
+	}
 	return path.join(DATA_DIR, `${sessionId}.json`);
 }
 

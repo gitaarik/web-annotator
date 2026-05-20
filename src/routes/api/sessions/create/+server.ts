@@ -1,18 +1,24 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { v4 as uuidv4 } from 'uuid';
 import { createTab, refreshScreenshot, getViewport } from '$lib/server/browser';
 import { createSession } from '$lib/server/storage';
 import { badRequest, errorResponse, getServerErrorMessage } from '$lib/server/api-utils';
 
 export const POST: RequestHandler = async ({ request }) => {
-	const { url, prompt, plan } = await request.json();
+	let body: { url?: string; prompt?: string; plan?: string };
+	try {
+		body = await request.json();
+	} catch {
+		return badRequest('Invalid JSON');
+	}
+
+	const { url, prompt, plan } = body;
 
 	if (!url || !prompt || !plan) {
 		return badRequest('URL, prompt, and plan are required');
 	}
 
-	const sessionId = uuidv4();
+	const sessionId = crypto.randomUUID();
 
 	try {
 		// Create a new tab and navigate to the URL

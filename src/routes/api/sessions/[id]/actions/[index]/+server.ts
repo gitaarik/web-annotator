@@ -26,7 +26,12 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 		return badRequest('Invalid action index');
 	}
 
-	const action = await request.json();
+	let action: unknown;
+	try {
+		action = await request.json();
+	} catch {
+		return badRequest('Invalid JSON');
+	}
 
 	if (!action || typeof action !== 'object') {
 		return badRequest('Action data is required');

@@ -212,7 +212,13 @@ const actionHandlers: Record<string, ActionHandler> = {
 };
 
 export const POST: RequestHandler = async ({ request }) => {
-	const body = await request.json();
+	let body: Record<string, unknown>;
+	try {
+		body = await request.json();
+	} catch {
+		return badRequest('Invalid JSON');
+	}
+
 	const {
 		sessionId,
 		tabId,
@@ -223,7 +229,17 @@ export const POST: RequestHandler = async ({ request }) => {
 		text,
 		targetUrl,
 		targetTabId
-	} = body;
+	} = body as {
+		sessionId?: string;
+		tabId?: string;
+		actionType?: string;
+		explanation?: string;
+		coordinates?: { x: number; y: number };
+		direction?: 'up' | 'down';
+		text?: string;
+		targetUrl?: string;
+		targetTabId?: string;
+	};
 
 	if (!sessionId || !actionType || !explanation) {
 		return badRequest('sessionId, actionType, and explanation are required');
@@ -245,7 +261,7 @@ export const POST: RequestHandler = async ({ request }) => {
 
 	try {
 		const ctx: ActionContext = {
-			tabId,
+			tabId: tabId ?? '',
 			sessionId,
 			screenshotIndex: session.actions.length + 1,
 			session,
@@ -264,8 +280,8 @@ export const POST: RequestHandler = async ({ request }) => {
 		}
 
 		const action: Action = {
-			type: actionType,
-			tabId: result.currentTabId || tabId,
+			type: actionType as Action['type'],
+			tabId: result.currentTabId || tabId || '',
 			explanation,
 			timestamp: new Date().toISOString(),
 			screenshotPath: result.screenshotPath,
