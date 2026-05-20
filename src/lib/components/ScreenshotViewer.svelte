@@ -39,11 +39,11 @@
 		layoutVersion++;
 	}
 
-	// Convert viewport coordinates to display coordinates for click highlight
+	// Convert viewport coordinates to display coordinates for click/hover highlight
 	let clickHighlightPosition = $derived.by(() => {
 		// Include layoutVersion in dependencies to trigger recalculation when image loads or resizes
 		void layoutVersion;
-		if (!hoverInfo || hoverInfo.type !== 'click' || !imageElement) return null;
+		if (!hoverInfo || (hoverInfo.type !== 'click' && hoverInfo.type !== 'hover') || !imageElement) return null;
 		const rect = imageElement.getBoundingClientRect();
 		if (rect.width === 0) return null;
 		const scaleX = rect.width / viewport.width;
@@ -110,7 +110,7 @@
 	.screenshot-container {
 		position: relative;
 		display: inline-block;
-		border: 2px solid #333;
+		border: 2px solid var(--color-border-dark);
 		border-radius: 4px;
 		overflow: hidden;
 	}
@@ -129,7 +129,7 @@
 		position: absolute;
 		width: 20px;
 		height: 20px;
-		border: 3px solid red;
+		border: 3px solid var(--color-danger);
 		border-radius: 50%;
 		transform: translate(-50%, -50%);
 		pointer-events: none;
@@ -151,8 +151,8 @@
 		position: absolute;
 		width: 32px;
 		height: 32px;
-		border: 3px solid #f59e0b;
-		background: rgba(245, 158, 11, 0.2);
+		border: 3px solid var(--color-warning);
+		background: color-mix(in srgb, var(--color-warning) 20%, transparent);
 		border-radius: 50%;
 		transform: translate(-50%, -50%);
 		pointer-events: none;
@@ -179,7 +179,7 @@
 		align-items: center;
 		gap: 0.25rem;
 		padding: 0.75rem 1.5rem;
-		background: rgba(245, 158, 11, 0.95);
+		background: var(--color-warning);
 		color: white;
 		border-radius: 8px;
 		pointer-events: none;
@@ -237,7 +237,7 @@
 		align-items: center;
 		gap: 0.5rem;
 		padding: 0.75rem 1.25rem;
-		background: rgba(245, 158, 11, 0.95);
+		background: var(--color-warning);
 		color: white;
 		border-radius: 8px;
 		pointer-events: none;

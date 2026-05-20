@@ -356,7 +356,7 @@
 
 <style>
 	.session-history {
-		background: #f9f9f9;
+		background: var(--color-bg-secondary);
 		border-radius: 8px;
 		padding: 0.75rem;
 	}
@@ -368,7 +368,7 @@
 	.history-title {
 		font-weight: 600;
 		font-size: 0.9rem;
-		color: #333;
+		color: var(--color-text-secondary);
 	}
 
 	.actions-list {
@@ -383,32 +383,32 @@
 		flex-shrink: 0;
 		width: 180px;
 		padding: 0.5rem;
-		background: white;
+		background: var(--color-bg-white);
 		border-radius: 6px;
-		border-top: 3px solid #0066cc;
+		border-top: 3px solid var(--color-primary);
 		display: flex;
 		flex-direction: column;
 		gap: 0.25rem;
 	}
 
 	.action-item.replayed {
-		border-top-color: #059669;
-		background: #f0fdf4;
+		border-top-color: var(--color-success);
+		background: var(--color-success-bg);
 	}
 
 	.action-item.next-playable {
-		border-top-color: #f59e0b;
-		box-shadow: 0 0 0 2px #fef3c7;
+		border-top-color: var(--color-warning);
+		box-shadow: 0 0 0 2px var(--color-warning-bg);
 	}
 
 	.action-item.editing {
-		border-top-color: #8b5cf6;
-		box-shadow: 0 0 0 2px #ddd6fe;
+		border-top-color: var(--color-purple);
+		box-shadow: 0 0 0 2px var(--color-purple-border);
 	}
 
 	.action-item.current-state {
-		border-top-color: #06b6d4;
-		background: #ecfeff;
+		border-top-color: var(--color-cyan);
+		background: var(--color-cyan-bg);
 	}
 
 	.action-top {
@@ -419,7 +419,7 @@
 
 	.action-number {
 		font-weight: bold;
-		color: #666;
+		color: var(--color-text-muted);
 		font-size: 0.75rem;
 	}
 
@@ -433,13 +433,13 @@
 	.action-type {
 		font-weight: 600;
 		font-size: 0.8rem;
-		color: #333;
+		color: var(--color-text-secondary);
 	}
 
 	.action-explanation {
 		font-size: 0.75rem;
 		line-height: 1.3;
-		color: #555;
+		color: var(--color-text-muted);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		display: -webkit-box;
@@ -459,14 +459,14 @@
 		flex: 1;
 		min-width: 0;
 		font-size: 0.65rem;
-		color: #888;
+		color: var(--color-text-subtle);
 		line-height: 1.3;
 		text-decoration: none;
 		height: 100%;
 	}
 
 	.action-url:hover {
-		color: #0066cc;
+		color: var(--color-primary);
 		text-decoration: underline;
 	}
 
@@ -481,8 +481,8 @@
 		flex-shrink: 0;
 		padding: 0.1rem 0.2rem;
 		font-size: 0.6rem;
-		background: #e5e5e5;
-		color: #666;
+		background: var(--color-bg-tertiary);
+		color: var(--color-text-muted);
 		border: none;
 		border-radius: 3px;
 		cursor: pointer;
@@ -496,15 +496,15 @@
 	}
 
 	.copy-url-btn:hover {
-		background: #d5d5d5;
-		color: #333;
+		background: var(--color-border);
+		color: var(--color-text-secondary);
 	}
 
 	.play-action-btn {
 		flex: 1;
 		padding: 0.4rem 0.5rem;
 		font-size: 0.85rem;
-		background: #059669;
+		background: var(--color-success);
 		color: white;
 		border: none;
 		border-radius: 4px;
@@ -516,11 +516,11 @@
 	}
 
 	.play-action-btn:hover:not(:disabled) {
-		background: #047857;
+		background: var(--color-success-hover);
 	}
 
 	.play-action-btn:disabled {
-		background: #ccc;
+		background: var(--color-disabled);
 		cursor: not-allowed;
 	}
 
@@ -528,7 +528,7 @@
 		flex: 1;
 		padding: 0.4rem 0.5rem;
 		font-size: 0.85rem;
-		background: #8b5cf6;
+		background: var(--color-purple);
 		color: white;
 		border: none;
 		border-radius: 4px;
@@ -540,14 +540,14 @@
 	}
 
 	.edit-action-btn:hover {
-		background: #7c3aed;
+		background: var(--color-purple-hover);
 	}
 
 	.delete-action-btn {
 		flex: 1;
 		padding: 0.4rem 0.5rem;
 		font-size: 0.95rem;
-		background: #dc2626;
+		background: var(--color-danger);
 		color: white;
 		border: none;
 		border-radius: 4px;
@@ -560,11 +560,11 @@
 	}
 
 	.delete-action-btn:hover:not(:disabled) {
-		background: #b91c1c;
+		background: var(--color-danger-hover);
 	}
 
 	.delete-action-btn:disabled {
-		background: #ccc;
+		background: var(--color-disabled);
 		cursor: not-allowed;
 	}
 
@@ -588,15 +588,15 @@
 		width: 100%;
 		/* aspect-ratio is set via inline style based on viewport prop */
 		padding: 0;
-		border: 1px solid #ddd;
+		border: 1px solid var(--color-border);
 		border-radius: 4px;
 		overflow: hidden;
 		cursor: pointer;
-		background: #f5f5f5;
+		background: var(--color-bg-tertiary);
 	}
 
 	.screenshot-thumbnail:hover {
-		border-color: #0066cc;
+		border-color: var(--color-primary);
 	}
 
 	.screenshot-thumbnail img {
@@ -610,8 +610,8 @@
 		position: absolute;
 		width: 12px;
 		height: 12px;
-		border: 2px solid #f59e0b;
-		background: rgba(245, 158, 11, 0.3);
+		border: 2px solid var(--color-warning);
+		background: color-mix(in srgb, var(--color-warning) 30%, transparent);
 		border-radius: 50%;
 		transform: translate(-50%, -50%);
 		pointer-events: none;
@@ -622,7 +622,7 @@
 		bottom: 4px;
 		left: 50%;
 		transform: translateX(-50%);
-		background: rgba(245, 158, 11, 0.9);
+		background: var(--color-warning);
 		color: white;
 		font-size: 0.7rem;
 		font-weight: bold;
@@ -641,7 +641,7 @@
 		top: 50%;
 		left: 50%;
 		transform: translate(-50%, -50%);
-		background: rgba(245, 158, 11, 0.9);
+		background: var(--color-warning);
 		color: white;
 		font-size: 0.8rem;
 		padding: 4px 8px;
@@ -704,16 +704,16 @@
 	.navigation-badge {
 		padding: 0.2rem 0.4rem;
 		font-size: 0.65rem;
-		background: #fef3c7;
-		color: #92400e;
-		border: 1px solid #f59e0b;
+		background: var(--color-warning-bg);
+		color: var(--color-warning-text, #92400e);
+		border: 1px solid var(--color-warning);
 		border-radius: 4px;
 		cursor: pointer;
 		transition: background 0.15s;
 	}
 
 	.navigation-badge:hover {
-		background: #fde68a;
+		background: var(--color-warning-hover-bg, #fde68a);
 	}
 
 	/* Details modal */
@@ -731,7 +731,7 @@
 
 	.details-modal-content {
 		position: relative;
-		background: white;
+		background: var(--color-bg-white);
 		border-radius: 8px;
 		padding: 1.5rem;
 		max-width: 600px;
@@ -741,30 +741,30 @@
 	}
 
 	.details-modal-content .modal-close {
-		background: #e5e5e5;
-		color: #333;
+		background: var(--color-bg-tertiary);
+		color: var(--color-text-secondary);
 	}
 
 	.details-modal-content .modal-close:hover {
-		background: #d5d5d5;
+		background: var(--color-border);
 	}
 
 	.details-modal-title {
 		margin: 0 0 0.5rem;
 		font-size: 1rem;
-		color: #333;
+		color: var(--color-text-secondary);
 	}
 
 	.details-action-type {
 		font-weight: 600;
 		font-size: 0.9rem;
-		color: #0066cc;
+		color: var(--color-primary);
 		margin-bottom: 0.25rem;
 	}
 
 	.details-explanation {
 		font-size: 0.85rem;
-		color: #555;
+		color: var(--color-text-muted);
 		margin: 0 0 1rem;
 		line-height: 1.4;
 	}
@@ -778,40 +778,40 @@
 
 	.flow-arrow {
 		text-align: center;
-		color: #999;
+		color: var(--color-text-subtle);
 		font-size: 1rem;
 	}
 
 	.flow-item {
 		padding: 0.75rem;
 		border-radius: 6px;
-		border-left: 3px solid #ccc;
-		background: #f9f9f9;
+		border-left: 3px solid var(--color-disabled);
+		background: var(--color-bg-secondary);
 	}
 
 	.flow-before {
-		border-left-color: #0066cc;
+		border-left-color: var(--color-primary);
 	}
 
 	.flow-redirect {
-		border-left-color: #f59e0b;
+		border-left-color: var(--color-warning);
 	}
 
 	.flow-after {
-		border-left-color: #059669;
+		border-left-color: var(--color-success);
 	}
 
 	.flow-label {
 		font-size: 0.7rem;
 		font-weight: 600;
 		text-transform: uppercase;
-		color: #666;
+		color: var(--color-text-muted);
 		margin-bottom: 0.25rem;
 	}
 
 	.flow-url {
 		font-size: 0.8rem;
-		color: #0066cc;
+		color: var(--color-primary);
 		text-decoration: none;
 		word-break: break-all;
 		display: block;
@@ -826,15 +826,15 @@
 		/* aspect-ratio is set via inline style based on viewport prop */
 		padding: 0;
 		margin-bottom: 0.5rem;
-		border: 1px solid #ddd;
+		border: 1px solid var(--color-border);
 		border-radius: 4px;
 		overflow: hidden;
 		cursor: pointer;
-		background: #f5f5f5;
+		background: var(--color-bg-tertiary);
 	}
 
 	.flow-screenshot:hover {
-		border-color: #0066cc;
+		border-color: var(--color-primary);
 	}
 
 	.flow-screenshot img {

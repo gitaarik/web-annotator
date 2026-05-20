@@ -142,7 +142,7 @@
 <style>
 	.action-panel {
 		padding: 1rem;
-		background: #f5f5f5;
+		background: var(--color-bg-tertiary);
 		border-radius: 8px;
 	}
 
@@ -161,18 +161,18 @@
 	.cancel-edit-btn {
 		padding: 0.35rem 0.75rem;
 		font-size: 0.8rem;
-		background: #e5e5e5;
-		color: #666;
-		border: 1px solid #ccc;
+		background: var(--color-bg-tertiary);
+		color: var(--color-text-muted);
+		border: 1px solid var(--color-border);
 		border-radius: 4px;
 		cursor: pointer;
 		transition: all 0.15s;
 	}
 
 	.cancel-edit-btn:hover {
-		background: #d5d5d5;
-		color: #333;
-		border-color: #999;
+		background: var(--color-border);
+		color: var(--color-text-secondary);
+		border-color: var(--color-border-hover);
 	}
 
 	.action-options {
@@ -186,20 +186,20 @@
 		align-items: center;
 		gap: 0.5rem;
 		padding: 0.75rem;
-		background: white;
-		border: 2px solid #ddd;
+		background: var(--color-bg-white);
+		border: 2px solid var(--color-border);
 		border-radius: 6px;
 		cursor: pointer;
 		transition: all 0.2s;
 	}
 
 	label:hover {
-		border-color: #999;
+		border-color: var(--color-border-hover);
 	}
 
 	label.selected {
-		border-color: #0066cc;
-		background: #e6f0ff;
+		border-color: var(--color-primary);
+		background: var(--color-primary-light);
 	}
 
 	.action-icon {
@@ -208,7 +208,7 @@
 
 	.action-hint {
 		font-size: 0.75rem;
-		color: #666;
+		color: var(--color-text-muted);
 		margin-left: auto;
 	}
 
@@ -229,18 +229,20 @@
 	.type-input input {
 		width: 100%;
 		padding: 0.5rem 0.75rem;
-		border: 2px solid #ddd;
+		border: 2px solid var(--color-border);
 		border-radius: 6px;
 		font-size: 0.9rem;
 		font-family: inherit;
+		background: var(--color-bg-white);
+		color: var(--color-text-primary);
 	}
 
 	.type-input input:focus {
 		outline: none;
-		border-color: #0066cc;
+		border-color: var(--color-primary);
 	}
 
 	input[type='radio'] {
-		accent-color: #0066cc;
+		accent-color: var(--color-primary);
 	}
 </style>

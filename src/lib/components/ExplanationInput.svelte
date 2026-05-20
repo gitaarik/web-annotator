@@ -35,16 +35,18 @@
 	textarea {
 		width: 100%;
 		padding: 0.75rem;
-		border: 2px solid #ddd;
+		border: 2px solid var(--color-border);
 		border-radius: 6px;
 		font-family: inherit;
 		font-size: 0.9rem;
 		resize: vertical;
 		transition: border-color 0.2s;
+		background: var(--color-bg-white);
+		color: var(--color-text-primary);
 	}
 
 	textarea:focus {
 		outline: none;
-		border-color: #0066cc;
+		border-color: var(--color-primary);
 	}
 </style>
