@@ -41,6 +41,15 @@
 	let savedSessions = $state<SessionSummary[]>([]);
 	let loadingSessions = $state(true);
 	let loadingSessionId = $state<string | null>(null);
+	let showNewSessionForm = $state(false);
+
+	function cancelNewSession() {
+		showNewSessionForm = false;
+		url = '';
+		prompt = '';
+		plan = '';
+		error = null;
+	}
 
 	onMount(() => {
 		fetchSavedSessions();
@@ -563,16 +572,31 @@
 	{/if}
 
 	{#if !sessionId}
-		<SetupForm
-			{url}
-			{prompt}
-			{plan}
-			{loading}
-			onUrlChange={(v) => (url = v)}
-			onPromptChange={(v) => (prompt = v)}
-			onPlanChange={(v) => (plan = v)}
-			onSubmit={startSession}
-		/>
+		<div class="home-header">
+			{#if !showNewSessionForm}
+				<button class="new-session-btn" onclick={() => (showNewSessionForm = true)}>
+					+ New Session
+				</button>
+			{/if}
+		</div>
+
+		{#if showNewSessionForm}
+			<div class="new-session-form-wrapper">
+				<SetupForm
+					{url}
+					{prompt}
+					{plan}
+					{loading}
+					onUrlChange={(v) => (url = v)}
+					onPromptChange={(v) => (prompt = v)}
+					onPlanChange={(v) => (plan = v)}
+					onSubmit={startSession}
+				/>
+				<button class="cancel-btn" onclick={cancelNewSession} disabled={loading}>
+					Cancel
+				</button>
+			</div>
+		{/if}
 
 		{#if !loadingSessions}
 			<SavedSessionsList
@@ -750,6 +774,39 @@
 	button:disabled {
 		background: var(--color-disabled);
 		cursor: not-allowed;
+	}
+
+	.home-header {
+		display: flex;
+		justify-content: flex-end;
+		margin-bottom: var(--space-lg);
+	}
+
+	.new-session-btn {
+		padding: var(--space-md) var(--space-xl);
+		font-size: 1rem;
+		font-weight: 600;
+	}
+
+	.new-session-form-wrapper {
+		margin-bottom: var(--space-2xl);
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: var(--space-md);
+	}
+
+	.cancel-btn {
+		background: var(--color-bg-tertiary);
+		color: var(--color-text-secondary);
+		border: 1px solid var(--color-border);
+		padding: var(--space-sm) var(--space-lg);
+		font-size: 0.9rem;
+	}
+
+	.cancel-btn:hover:not(:disabled) {
+		background: var(--color-bg-secondary);
+		border-color: var(--color-border-hover);
 	}
 
 	.annotation-interface {

@@ -24,7 +24,7 @@
 
 <section class="saved-sessions">
 	<div class="sessions-header">
-		<h2>Saved Sessions</h2>
+		<h2>Recent Sessions</h2>
 		<label class="import-btn">
 			&uarr; Import
 			<input type="file" accept=".json" onchange={onImport} hidden disabled={loading} />
@@ -64,13 +64,16 @@
 				</div>
 			{/each}
 		</div>
+	{:else}
+		<div class="empty-state">
+			<p>No sessions yet. Click "New Session" to get started.</p>
+		</div>
 	{/if}
 </section>
 
 <style>
 	.saved-sessions {
 		max-width: 600px;
-		margin-top: var(--space-2xl);
 	}
 
 	h2 {
@@ -206,5 +209,18 @@
 		gap: var(--space-lg);
 		font-size: 0.8rem;
 		color: var(--color-text-subtle);
+	}
+
+	.empty-state {
+		background: var(--color-bg-white);
+		padding: var(--space-2xl);
+		border-radius: var(--radius-lg);
+		border: 2px dashed var(--color-border);
+		text-align: center;
+	}
+
+	.empty-state p {
+		margin: 0;
+		color: var(--color-text-muted);
 	}
 </style>
