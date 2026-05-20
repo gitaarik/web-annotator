@@ -1,6 +1,54 @@
 <script lang="ts">
 	import { type Action, type HoverInfo, formatAction } from '$lib/types';
 
+	let copiedUrl: string | null = $state(null);
+
+	function formatUrlParts(url: string): { line1: string; line2: string | null } {
+		const singleLineMax = 40; // URLs up to this length stay on one line (CSS handles overflow)
+		const lineLength = 32; // Target length per line when splitting
+
+		if (url.length <= singleLineMax) {
+			// Fits on one line (CSS will ellipsis if slightly too long)
+			return { line1: url, line2: null };
+		}
+
+		if (url.length <= lineLength * 2) {
+			// Short enough to show on two lines without ellipsis
+			const mid = Math.ceil(url.length / 2);
+			return { line1: url.slice(0, mid), line2: url.slice(mid) };
+		}
+
+		// Show start with ellipsis, and end with ellipsis prefix
+		const partLength = lineLength - 3; // Leave room for "..."
+
+		return {
+			line1: url.slice(0, partLength) + '...',
+			line2: '...' + url.slice(-partLength)
+		};
+	}
+
+	async function copyUrl(url: string) {
+		try {
+			await navigator.clipboard.writeText(url);
+			copiedUrl = url;
+			setTimeout(() => {
+				if (copiedUrl === url) copiedUrl = null;
+			}, 1500);
+		} catch {
+			// Fallback for older browsers
+			const textarea = document.createElement('textarea');
+			textarea.value = url;
+			document.body.appendChild(textarea);
+			textarea.select();
+			document.execCommand('copy');
+			document.body.removeChild(textarea);
+			copiedUrl = url;
+			setTimeout(() => {
+				if (copiedUrl === url) copiedUrl = null;
+			}, 1500);
+		}
+	}
+
 	interface Props {
 		actions: Action[];
 		replayedUpTo?: number;
@@ -103,9 +151,28 @@
 				</div>
 				<div class="action-type">{formatAction(action)}</div>
 				<div class="action-explanation">{action.explanation}</div>
-				{#if action.url}
-					<div class="action-url" title={action.url}>{action.url}</div>
-				{/if}
+				<div class="action-url-container">
+					{#if action.url}
+						{@const urlParts = formatUrlParts(action.url)}
+						<a class="action-url" href={action.url} target="_blank" rel="noopener noreferrer" title={action.url}>
+							<span class="url-line">{urlParts.line1}</span>
+							{#if urlParts.line2}
+								<span class="url-line">{urlParts.line2}</span>
+							{/if}
+						</a>
+						<button
+							class="copy-url-btn"
+							onclick={() => copyUrl(action.url)}
+							title={copiedUrl === action.url ? 'Copied!' : 'Copy URL'}
+						>
+							{#if copiedUrl === action.url}
+								✓
+							{:else}
+								⧉
+							{/if}
+						</button>
+					{/if}
+				</div>
 			</div>
 		{/each}
 	</div>
@@ -189,21 +256,67 @@
 
 	.action-explanation {
 		font-size: 0.75rem;
+		line-height: 1.3;
 		color: #555;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		display: -webkit-box;
-		-webkit-line-clamp: 2;
+		-webkit-line-clamp: 3;
 		-webkit-box-orient: vertical;
+		height: calc(0.75rem * 1.3 * 3); /* Fixed 3 lines */
+	}
+
+	.action-url-container {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.25rem;
+		margin-top: auto; /* Push to bottom */
+		height: calc(0.65rem * 1.3 * 2); /* Fixed 2 lines */
 	}
 
 	.action-url {
+		flex: 1;
+		min-width: 0;
 		font-size: 0.65rem;
 		color: #888;
+		line-height: 1.3;
+		text-decoration: none;
+		height: 100%;
+	}
+
+	.action-url:hover {
+		color: #0066cc;
+		text-decoration: underline;
+	}
+
+	.url-line {
+		display: block;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-		margin-top: 0.25rem;
+	}
+
+	.copy-url-btn {
+		flex-shrink: 0;
+		padding: 0.1rem 0.2rem;
+		font-size: 0.6rem;
+		background: #e5e5e5;
+		color: #666;
+		border: none;
+		border-radius: 3px;
+		cursor: pointer;
+		line-height: 1;
+		opacity: 0.6;
+		transition: opacity 0.15s;
+	}
+
+	.action-item:hover .copy-url-btn {
+		opacity: 1;
+	}
+
+	.copy-url-btn:hover {
+		background: #d5d5d5;
+		color: #333;
 	}
 
 	.replay-action-btn {
