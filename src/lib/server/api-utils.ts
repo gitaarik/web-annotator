@@ -1,4 +1,8 @@
 import { json } from '@sveltejs/kit';
+import { getErrorMessage } from '$lib/utils/error';
+
+// Re-export for convenience (aliased to maintain API compatibility)
+export { getErrorMessage as getServerErrorMessage } from '$lib/utils/error';
 
 /**
  * Creates a standardized error response.
@@ -22,16 +26,6 @@ export function notFound(message: string = 'Not found') {
 }
 
 /**
- * Extracts an error message from an unknown error.
- */
-export function getServerErrorMessage(error: unknown, fallback: string = 'An error occurred'): string {
-	if (error instanceof Error) {
-		return error.message;
-	}
-	return fallback;
-}
-
-/**
  * Wraps an async handler with standardized error handling.
  */
 export async function withErrorHandling<T>(
@@ -41,6 +35,6 @@ export async function withErrorHandling<T>(
 	try {
 		return await operation();
 	} catch (error) {
-		return errorResponse(getServerErrorMessage(error, fallbackMessage));
+		return errorResponse(getErrorMessage(error, fallbackMessage));
 	}
 }

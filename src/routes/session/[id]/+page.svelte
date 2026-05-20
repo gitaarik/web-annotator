@@ -497,7 +497,12 @@
 			<p>Total actions: {actions.length}</p>
 			<p>Final answer: {actions[actions.length - 1]?.explanation}</p>
 
-			<SessionHistory {actions} {viewport} currentScreenshot={screenshotPath} {currentUrl} onDelete={handleDeleteAction} {deleteLoading} />
+			<svelte:boundary onerror={(e) => error = `History error: ${getErrorMessage(e)}`}>
+				<SessionHistory {actions} {viewport} currentScreenshot={screenshotPath} {currentUrl} onDelete={handleDeleteAction} {deleteLoading} />
+				{#snippet failed()}
+					<div class="error">Failed to render session history. Please refresh the page.</div>
+				{/snippet}
+			</svelte:boundary>
 
 			<button onclick={goHome}>Back to Sessions</button>
 		</section>
@@ -525,19 +530,24 @@
 
 			{#if actions.length > 0 || screenshotPath}
 				<div class="history-section">
-					<SessionHistory
-						{actions}
-						{viewport}
-						currentScreenshot={screenshotPath}
-						{currentUrl}
-						{replayedUpTo}
-						onReplay={handleReplayAction}
-						{replayLoading}
-						onDelete={handleDeleteAction}
-						{deleteLoading}
-						onHoverAction={(info) => (hoverInfo = info)}
-						editingIndex={editingActionIndex}
-					/>
+					<svelte:boundary onerror={(e) => error = `History error: ${getErrorMessage(e)}`}>
+						<SessionHistory
+							{actions}
+							{viewport}
+							currentScreenshot={screenshotPath}
+							{currentUrl}
+							{replayedUpTo}
+							onReplay={handleReplayAction}
+							{replayLoading}
+							onDelete={handleDeleteAction}
+							{deleteLoading}
+							onHoverAction={(info) => (hoverInfo = info)}
+							editingIndex={editingActionIndex}
+						/>
+						{#snippet failed()}
+							<div class="error">Failed to render session history. Please refresh the page.</div>
+						{/snippet}
+					</svelte:boundary>
 				</div>
 			{/if}
 
@@ -552,13 +562,20 @@
 						</div>
 					{:else if screenshotPath}
 						<div class="screenshot-wrapper">
-							<ScreenshotViewer
-								src={screenshotPath}
-								{viewport}
-								onclick={handleClick}
-								clickEnabled={selectedAction === 'click' || selectedAction === 'hover'}
-								{hoverInfo}
-							/>
+							<svelte:boundary onerror={(e) => error = `Screenshot error: ${getErrorMessage(e)}`}>
+								<ScreenshotViewer
+									src={screenshotPath}
+									{viewport}
+									onclick={handleClick}
+									clickEnabled={selectedAction === 'click' || selectedAction === 'hover'}
+									{hoverInfo}
+								/>
+								{#snippet failed()}
+									<div class="screenshot-placeholder">
+										<p>Failed to load screenshot</p>
+									</div>
+								{/snippet}
+							</svelte:boundary>
 							{#if replayLoading || actionLoading}
 								<div class="screenshot-loading-overlay">
 									<div class="loading-content">

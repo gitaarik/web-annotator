@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { type Action, type HoverInfo, formatAction } from '$lib/types';
+	import { type Action, type HoverInfo, formatAction, actionToHoverInfo } from '$lib/types';
+	import { formatUrlParts, copyToClipboard } from '$lib/utils/url';
 	import ScreenshotViewer from './ScreenshotViewer.svelte';
 
 	let copiedUrl: string | null = $state(null);
@@ -7,50 +8,12 @@
 	let expandedScreenshotSrc: string | null = $state(null);
 	let detailsAction: { index: number; action: Action } | null = $state(null);
 
-	function formatUrlParts(url: string): { line1: string; line2: string | null } {
-		const singleLineMax = 40; // URLs up to this length stay on one line (CSS handles overflow)
-		const lineLength = 32; // Target length per line when splitting
-
-		if (url.length <= singleLineMax) {
-			// Fits on one line (CSS will ellipsis if slightly too long)
-			return { line1: url, line2: null };
-		}
-
-		if (url.length <= lineLength * 2) {
-			// Short enough to show on two lines without ellipsis
-			const mid = Math.ceil(url.length / 2);
-			return { line1: url.slice(0, mid), line2: url.slice(mid) };
-		}
-
-		// Show start with ellipsis, and end with ellipsis prefix
-		const partLength = lineLength - 3; // Leave room for "..."
-
-		return {
-			line1: url.slice(0, partLength) + '...',
-			line2: '...' + url.slice(-partLength)
-		};
-	}
-
 	async function copyUrl(url: string) {
-		try {
-			await navigator.clipboard.writeText(url);
-			copiedUrl = url;
-			setTimeout(() => {
-				if (copiedUrl === url) copiedUrl = null;
-			}, 1500);
-		} catch {
-			// Fallback for older browsers
-			const textarea = document.createElement('textarea');
-			textarea.value = url;
-			document.body.appendChild(textarea);
-			textarea.select();
-			document.execCommand('copy');
-			document.body.removeChild(textarea);
-			copiedUrl = url;
-			setTimeout(() => {
-				if (copiedUrl === url) copiedUrl = null;
-			}, 1500);
-		}
+		await copyToClipboard(url);
+		copiedUrl = url;
+		setTimeout(() => {
+			if (copiedUrl === url) copiedUrl = null;
+		}, 1500);
 	}
 
 	interface Props {
@@ -81,19 +44,6 @@
 		editingIndex = null
 	}: Props = $props();
 
-	function actionToHoverInfo(action: Action): HoverInfo {
-		if (action.type === 'click' && action.coordinates) {
-			return { type: 'click', coordinates: action.coordinates };
-		}
-		if (action.type === 'scroll' && action.direction) {
-			return { type: 'scroll', direction: action.direction };
-		}
-		if (action.type === 'type' && action.text) {
-			return { type: 'type', text: action.text };
-		}
-		return null;
-	}
-
 	function canReplay(index: number): boolean {
 		return onReplay !== undefined && index === replayedUpTo + 1 && !replayLoading;
 	}
@@ -108,14 +58,8 @@
 
 	function handleMouseEnter(action: Action, index: number) {
 		if (!onHoverAction || !isNextPlayable(index)) return;
-
-		if (action.type === 'click' && action.coordinates) {
-			onHoverAction({ type: 'click', coordinates: action.coordinates });
-		} else if (action.type === 'scroll' && action.direction) {
-			onHoverAction({ type: 'scroll', direction: action.direction });
-		} else if (action.type === 'type' && action.text) {
-			onHoverAction({ type: 'type', text: action.text });
-		}
+		const info = actionToHoverInfo(action);
+		if (info) onHoverAction(info);
 	}
 
 	function handleMouseLeave() {

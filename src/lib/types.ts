@@ -117,3 +117,22 @@ export function formatAction(action: Action): string {
 			return 'Unknown';
 	}
 }
+
+/**
+ * Converts an action to HoverInfo for display overlay
+ */
+export function actionToHoverInfo(action: Action): HoverInfo {
+	if (action.type === 'click' && action.coordinates) {
+		return { type: 'click', coordinates: action.coordinates };
+	}
+	if (action.type === 'hover' && action.coordinates) {
+		return { type: 'hover', coordinates: action.coordinates };
+	}
+	if (action.type === 'scroll' && action.direction) {
+		return { type: 'scroll', direction: action.direction };
+	}
+	if (action.type === 'type' && action.text) {
+		return { type: 'type', text: action.text };
+	}
+	return null;
+}

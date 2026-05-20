@@ -2,6 +2,8 @@
  * API request utility for standardized fetch patterns
  */
 
+export { getErrorMessage } from './utils/error';
+
 export class ApiError extends Error {
 	constructor(
 		message: string,
@@ -42,14 +44,4 @@ export async function apiRequest<T>(
 	}
 
 	return data as T;
-}
-
-/**
- * Extracts an error message from an unknown error.
- */
-export function getErrorMessage(error: unknown): string {
-	if (error instanceof Error) {
-		return error.message;
-	}
-	return 'An error occurred';
 }

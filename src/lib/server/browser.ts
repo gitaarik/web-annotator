@@ -14,20 +14,78 @@ import type { Redirect } from '$lib/types';
 // browser-service API URL
 const BROWSER_SERVICE_URL = process.env.BROWSER_SERVICE_URL || 'http://127.0.0.1:3001';
 
-// Track active session for this web-annotator instance
-let activeSessionId: string | null = null;
-
-// Tab management: currently simplified to one tab per session
-// The tabId maps to the session in browser-service
-const tabs: Map<string, { sessionId: string; url: string }> = new Map();
-let activeTabId: string | null = null;
-
-// Track actual viewport from browser-service (updated on each screenshot)
-let currentViewport: { width: number; height: number } = browserConfig.viewport;
-
-function generateTabId(): string {
-	return `tab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+interface TabInfo {
+	sessionId: string;
+	url: string;
 }
+
+/**
+ * Encapsulates browser session state.
+ * Currently limited to one session per web-annotator instance.
+ */
+class BrowserState {
+	private activeSessionId: string | null = null;
+	private tabs: Map<string, TabInfo> = new Map();
+	private activeTabId: string | null = null;
+	private viewport: { width: number; height: number } = browserConfig.viewport;
+
+	generateTabId(): string {
+		return `tab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+	}
+
+	getActiveSessionId(): string | null {
+		return this.activeSessionId;
+	}
+
+	setActiveSessionId(id: string | null): void {
+		this.activeSessionId = id;
+	}
+
+	getActiveTabId(): string | null {
+		return this.activeTabId;
+	}
+
+	setActiveTabId(id: string | null): void {
+		this.activeTabId = id;
+	}
+
+	getTab(tabId: string): TabInfo | undefined {
+		return this.tabs.get(tabId);
+	}
+
+	setTab(tabId: string, info: TabInfo): void {
+		this.tabs.set(tabId, info);
+	}
+
+	deleteTab(tabId: string): void {
+		this.tabs.delete(tabId);
+	}
+
+	listTabIds(): string[] {
+		return Array.from(this.tabs.keys());
+	}
+
+	getViewport(): { width: number; height: number } {
+		return this.viewport;
+	}
+
+	setViewport(viewport: { width: number; height: number }): void {
+		this.viewport = viewport;
+	}
+
+	clear(): void {
+		this.tabs.clear();
+		this.activeTabId = null;
+		this.activeSessionId = null;
+	}
+
+	*tabEntries(): IterableIterator<[string, TabInfo]> {
+		yield* this.tabs.entries();
+	}
+}
+
+// Singleton instance for this server process
+const state = new BrowserState();
 
 /**
  * Call browser-service API.
@@ -83,7 +141,7 @@ async function captureScreenshot(sessionId: string, filename: string): Promise<s
 
 	// Update viewport if returned by browser-service
 	if (result.viewport) {
-		currentViewport = result.viewport;
+		state.setViewport(result.viewport);
 	}
 
 	return saveScreenshot(result.data, sessionId, filename);
@@ -102,7 +160,7 @@ export async function createTab(
 	browserSessionId?: string
 ): Promise<{ tabId: string; url: string }> {
 	// Use provided browserSessionId or generate a new one
-	const tabId = generateTabId();
+	const tabId = state.generateTabId();
 	const sessionId = browserSessionId || tabId;
 
 	// Launch or reconnect to Chrome via browser-service
@@ -128,9 +186,9 @@ export async function createTab(
 	}
 
 	// Track locally
-	tabs.set(tabId, { sessionId, url: currentUrl });
-	activeTabId = tabId;
-	activeSessionId = sessionId;
+	state.setTab(tabId, { sessionId, url: currentUrl });
+	state.setActiveTabId(tabId);
+	state.setActiveSessionId(sessionId);
 
 	return { tabId, url: currentUrl };
 }
@@ -139,31 +197,32 @@ export async function createTab(
  * Switches the active tab to the specified tab ID.
  */
 export function switchTab(tabId: string): void {
-	if (!tabs.has(tabId)) {
+	const tab = state.getTab(tabId);
+	if (!tab) {
 		throw new Error(`Tab ${tabId} not found`);
 	}
-	activeTabId = tabId;
-	activeSessionId = tabs.get(tabId)!.sessionId;
+	state.setActiveTabId(tabId);
+	state.setActiveSessionId(tab.sessionId);
 }
 
 /**
  * Closes the specified tab.
  */
 export async function closeTab(tabId: string): Promise<void> {
-	const tab = tabs.get(tabId);
+	const tab = state.getTab(tabId);
 	if (tab) {
 		await browserApi<{ success: boolean }>('POST', `/sessions/${tab.sessionId}/close`);
-		tabs.delete(tabId);
+		state.deleteTab(tabId);
 	}
 	// Switch to another tab if we closed the active one
-	if (activeTabId === tabId) {
-		const remainingTabs = Array.from(tabs.keys());
+	if (state.getActiveTabId() === tabId) {
+		const remainingTabs = state.listTabIds();
 		if (remainingTabs.length > 0) {
-			activeTabId = remainingTabs[0];
-			activeSessionId = tabs.get(activeTabId)!.sessionId;
+			state.setActiveTabId(remainingTabs[0]);
+			state.setActiveSessionId(state.getTab(remainingTabs[0])!.sessionId);
 		} else {
-			activeTabId = null;
-			activeSessionId = null;
+			state.setActiveTabId(null);
+			state.setActiveSessionId(null);
 		}
 	}
 }
@@ -172,7 +231,7 @@ export async function closeTab(tabId: string): Promise<void> {
  * Gets the session ID for a tab.
  */
 function getSessionId(tabId: string): string {
-	const tab = tabs.get(tabId);
+	const tab = state.getTab(tabId);
 	if (!tab) {
 		throw new Error(`Tab ${tabId} not found`);
 	}
@@ -183,14 +242,14 @@ function getSessionId(tabId: string): string {
  * Returns a list of all open tab IDs.
  */
 export function listTabs(): string[] {
-	return Array.from(tabs.keys());
+	return state.listTabIds();
 }
 
 /**
  * Returns the currently active tab ID, or null if none.
  */
 export function getActiveTabId(): string | null {
-	return activeTabId;
+	return state.getActiveTabId();
 }
 
 /**
@@ -198,6 +257,13 @@ export function getActiveTabId(): string | null {
  */
 function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Fetches the current URL from browser-service.
+ */
+async function fetchUrl(sessionId: string): Promise<string> {
+	return (await browserApi<{ url: string }>('GET', `/sessions/${sessionId}/url`)).url;
 }
 
 /**
@@ -213,11 +279,11 @@ async function waitForStable(sessionId: string): Promise<void> {
 	let lastUrl = '';
 
 	while (Date.now() - startTime < browserConfig.postActionMonitorTimeout) {
-		const result = await browserApi<{ url: string }>('GET', `/sessions/${sessionId}/url`);
-		if (result.url === lastUrl) {
+		const currentUrl = await fetchUrl(sessionId);
+		if (currentUrl === lastUrl) {
 			break; // URL stable
 		}
-		lastUrl = result.url;
+		lastUrl = currentUrl;
 		await sleep(500);
 	}
 }
@@ -237,10 +303,9 @@ export async function navigateAndScreenshot(
 	await waitForStable(browserSessionId);
 
 	// Update local URL tracking
-	const tab = tabs.get(tabId);
+	const tab = state.getTab(tabId);
 	if (tab) {
-		const urlResult = await browserApi<{ url: string }>('GET', `/sessions/${browserSessionId}/url`);
-		tab.url = urlResult.url;
+		tab.url = await fetchUrl(browserSessionId);
 	}
 
 	return captureScreenshot(browserSessionId, '0');
@@ -252,6 +317,66 @@ export interface ActionResult {
 	beforeUrl: string;
 	afterUrl: string;
 	redirects: Redirect[];
+}
+
+interface ExecuteActionOptions {
+	tabId: string;
+	sessionId: string;
+	actionIndex: number;
+	screenshotPrefix?: string;
+	trackRedirects?: boolean;
+	updateLocalUrl?: boolean;
+}
+
+/**
+ * Generic action executor that handles the common before/after pattern.
+ * Captures before screenshot/URL, executes the action, captures after screenshot/URL.
+ */
+async function executeActionWithTracking(
+	options: ExecuteActionOptions,
+	action: () => Promise<void>
+): Promise<ActionResult> {
+	const {
+		tabId,
+		sessionId,
+		actionIndex,
+		screenshotPrefix = '',
+		trackRedirects = true,
+		updateLocalUrl = true
+	} = options;
+
+	const browserSessionId = getSessionId(tabId);
+	const prefix = screenshotPrefix ? `${screenshotPrefix}-` : '';
+
+	// Capture before state
+	const beforeScreenshot = await captureScreenshot(browserSessionId, `${prefix}${actionIndex}-before`);
+	const beforeUrl = await fetchUrl(browserSessionId);
+
+	// Execute action with optional redirect tracking
+	let redirects: Redirect[] = [];
+	if (trackRedirects) {
+		redirects = await withRedirectTracking(
+			browserSessionId,
+			sessionId,
+			actionIndex,
+			beforeUrl,
+			action
+		);
+	} else {
+		await action();
+	}
+
+	// Capture after state
+	const afterScreenshot = await captureScreenshot(browserSessionId, `${prefix}${actionIndex}-after`);
+	const afterUrl = await fetchUrl(browserSessionId);
+
+	// Update local URL tracking if requested
+	if (updateLocalUrl) {
+		const tab = state.getTab(tabId);
+		if (tab) tab.url = afterUrl;
+	}
+
+	return { beforeScreenshot, afterScreenshot, beforeUrl, afterUrl, redirects };
 }
 
 /**
@@ -275,18 +400,18 @@ async function withRedirectTracking(
 	let lastUrl = beforeUrl;
 
 	while (Date.now() - startTime < browserConfig.postActionMonitorTimeout) {
-		const result = await browserApi<{ url: string }>('GET', `/sessions/${sessionId}/url`);
+		const currentUrl = await fetchUrl(sessionId);
 
-		if (result.url !== lastUrl && result.url !== beforeUrl) {
+		if (currentUrl !== lastUrl && currentUrl !== beforeUrl) {
 			// New URL detected
-			if (!redirects.some((r) => r.url === result.url)) {
+			if (!redirects.some((r) => r.url === currentUrl)) {
 				const screenshotPath = await captureScreenshot(
 					sessionId,
 					`${actionIndex}-redirect-${redirectCounter++}`
 				);
-				redirects.push({ url: result.url, screenshotPath });
+				redirects.push({ url: currentUrl, screenshotPath });
 			}
-			lastUrl = result.url;
+			lastUrl = currentUrl;
 		}
 
 		await sleep(200);
@@ -296,8 +421,8 @@ async function withRedirectTracking(
 	await waitForStable(sessionId);
 
 	// Remove the final URL from redirects if it will be the afterUrl
-	const finalResult = await browserApi<{ url: string }>('GET', `/sessions/${sessionId}/url`);
-	if (redirects.length > 0 && redirects[redirects.length - 1].url === finalResult.url) {
+	const finalUrl = await fetchUrl(sessionId);
+	if (redirects.length > 0 && redirects[redirects.length - 1].url === finalUrl) {
 		redirects.pop();
 	}
 
@@ -312,33 +437,13 @@ export async function executeClick(
 	actionIndex: number
 ): Promise<ActionResult> {
 	const browserSessionId = getSessionId(tabId);
-	const beforeScreenshot = await captureScreenshot(browserSessionId, `${actionIndex}-before`);
-	const beforeUrl = (await browserApi<{ url: string }>('GET', `/sessions/${browserSessionId}/url`))
-		.url;
-
-	const redirects = await withRedirectTracking(
-		browserSessionId,
-		sessionId,
-		actionIndex,
-		beforeUrl,
-		async () => {
-			await browserApi<{ success: boolean }>('POST', `/sessions/${browserSessionId}/click`, {
-				x,
-				y,
-				button: 'left'
-			});
-		}
-	);
-
-	const afterScreenshot = await captureScreenshot(browserSessionId, `${actionIndex}-after`);
-	const afterUrl = (await browserApi<{ url: string }>('GET', `/sessions/${browserSessionId}/url`))
-		.url;
-
-	// Update local URL tracking
-	const tab = tabs.get(tabId);
-	if (tab) tab.url = afterUrl;
-
-	return { beforeScreenshot, afterScreenshot, beforeUrl, afterUrl, redirects };
+	return executeActionWithTracking({ tabId, sessionId, actionIndex }, async () => {
+		await browserApi<{ success: boolean }>('POST', `/sessions/${browserSessionId}/click`, {
+			x,
+			y,
+			button: 'left'
+		});
+	});
 }
 
 export async function executeHover(
@@ -349,24 +454,13 @@ export async function executeHover(
 	actionIndex: number
 ): Promise<ActionResult> {
 	const browserSessionId = getSessionId(tabId);
-	const beforeScreenshot = await captureScreenshot(browserSessionId, `${actionIndex}-before`);
-	const beforeUrl = (await browserApi<{ url: string }>('GET', `/sessions/${browserSessionId}/url`))
-		.url;
-
-	// Move mouse to position without clicking
-	await browserApi<{ success: boolean }>('POST', `/sessions/${browserSessionId}/move`, {
-		x,
-		y
-	});
-
-	// Wait briefly for any hover effects to appear
-	await sleep(300);
-
-	const afterScreenshot = await captureScreenshot(browserSessionId, `${actionIndex}-after`);
-	const afterUrl = (await browserApi<{ url: string }>('GET', `/sessions/${browserSessionId}/url`))
-		.url;
-
-	return { beforeScreenshot, afterScreenshot, beforeUrl, afterUrl, redirects: [] };
+	return executeActionWithTracking(
+		{ tabId, sessionId, actionIndex, trackRedirects: false, updateLocalUrl: false },
+		async () => {
+			await browserApi<{ success: boolean }>('POST', `/sessions/${browserSessionId}/move`, { x, y });
+			await sleep(300); // Wait for hover effects
+		}
+	);
 }
 
 export async function executeScroll(
@@ -376,29 +470,11 @@ export async function executeScroll(
 	actionIndex: number
 ): Promise<ActionResult> {
 	const browserSessionId = getSessionId(tabId);
-	const beforeScreenshot = await captureScreenshot(browserSessionId, `${actionIndex}-before`);
-	const beforeUrl = (await browserApi<{ url: string }>('GET', `/sessions/${browserSessionId}/url`))
-		.url;
-
 	const deltaY = direction === 'down' ? browserConfig.scrollAmount : -browserConfig.scrollAmount;
 
-	const redirects = await withRedirectTracking(
-		browserSessionId,
-		sessionId,
-		actionIndex,
-		beforeUrl,
-		async () => {
-			await browserApi<{ success: boolean }>('POST', `/sessions/${browserSessionId}/scroll`, {
-				deltaY
-			});
-		}
-	);
-
-	const afterScreenshot = await captureScreenshot(browserSessionId, `${actionIndex}-after`);
-	const afterUrl = (await browserApi<{ url: string }>('GET', `/sessions/${browserSessionId}/url`))
-		.url;
-
-	return { beforeScreenshot, afterScreenshot, beforeUrl, afterUrl, redirects };
+	return executeActionWithTracking({ tabId, sessionId, actionIndex }, async () => {
+		await browserApi<{ success: boolean }>('POST', `/sessions/${browserSessionId}/scroll`, { deltaY });
+	});
 }
 
 export async function executeType(
@@ -408,28 +484,12 @@ export async function executeType(
 	actionIndex: number
 ): Promise<ActionResult> {
 	const browserSessionId = getSessionId(tabId);
-	const beforeScreenshot = await captureScreenshot(browserSessionId, `${actionIndex}-before`);
-	const beforeUrl = (await browserApi<{ url: string }>('GET', `/sessions/${browserSessionId}/url`))
-		.url;
-
-	const redirects = await withRedirectTracking(
-		browserSessionId,
-		sessionId,
-		actionIndex,
-		beforeUrl,
-		async () => {
-			await browserApi<{ success: boolean }>('POST', `/sessions/${browserSessionId}/type`, {
-				text,
-				charDelayMs: inputConfig.charDelayMs
-			});
-		}
-	);
-
-	const afterScreenshot = await captureScreenshot(browserSessionId, `${actionIndex}-after`);
-	const afterUrl = (await browserApi<{ url: string }>('GET', `/sessions/${browserSessionId}/url`))
-		.url;
-
-	return { beforeScreenshot, afterScreenshot, beforeUrl, afterUrl, redirects };
+	return executeActionWithTracking({ tabId, sessionId, actionIndex }, async () => {
+		await browserApi<{ success: boolean }>('POST', `/sessions/${browserSessionId}/type`, {
+			text,
+			charDelayMs: inputConfig.charDelayMs
+		});
+	});
 }
 
 export async function executeWait(
@@ -438,18 +498,12 @@ export async function executeWait(
 	actionIndex: number
 ): Promise<ActionResult> {
 	const browserSessionId = getSessionId(tabId);
-	const beforeScreenshot = await captureScreenshot(browserSessionId, `${actionIndex}-before`);
-	const beforeUrl = (await browserApi<{ url: string }>('GET', `/sessions/${browserSessionId}/url`))
-		.url;
-
-	// Wait action: just wait for stability
-	await waitForStable(browserSessionId);
-
-	const afterScreenshot = await captureScreenshot(browserSessionId, `${actionIndex}-after`);
-	const afterUrl = (await browserApi<{ url: string }>('GET', `/sessions/${browserSessionId}/url`))
-		.url;
-
-	return { beforeScreenshot, afterScreenshot, beforeUrl, afterUrl, redirects: [] };
+	return executeActionWithTracking(
+		{ tabId, sessionId, actionIndex, trackRedirects: false, updateLocalUrl: false },
+		async () => {
+			await waitForStable(browserSessionId);
+		}
+	);
 }
 
 export async function replaySingleAction(
@@ -465,20 +519,8 @@ export async function replaySingleAction(
 ): Promise<ActionResult> {
 	const browserSessionId = getSessionId(tabId);
 
-	// Capture BEFORE state
-	const beforeScreenshot = await captureScreenshot(
-		browserSessionId,
-		`replay-${actionIndex}-before`
-	);
-	const beforeUrl = (await browserApi<{ url: string }>('GET', `/sessions/${browserSessionId}/url`))
-		.url;
-
-	// Execute the action with redirect tracking
-	const redirects = await withRedirectTracking(
-		browserSessionId,
-		sessionId,
-		actionIndex,
-		beforeUrl,
+	return executeActionWithTracking(
+		{ tabId, sessionId, actionIndex, screenshotPrefix: 'replay', updateLocalUrl: false },
 		async () => {
 			if (action.type === 'click' && action.coordinates) {
 				await browserApi<{ success: boolean }>('POST', `/sessions/${browserSessionId}/click`, {
@@ -494,9 +536,7 @@ export async function replaySingleAction(
 				await sleep(300); // Wait for hover effects
 			} else if (action.type === 'scroll' && action.direction) {
 				const deltaY =
-					action.direction === 'down'
-						? browserConfig.scrollAmount
-						: -browserConfig.scrollAmount;
+					action.direction === 'down' ? browserConfig.scrollAmount : -browserConfig.scrollAmount;
 				await browserApi<{ success: boolean }>('POST', `/sessions/${browserSessionId}/scroll`, {
 					deltaY
 				});
@@ -509,13 +549,6 @@ export async function replaySingleAction(
 			// For 'wait' and 'stop' actions, just wait for page stability
 		}
 	);
-
-	// Capture AFTER state
-	const afterScreenshot = await captureScreenshot(browserSessionId, `replay-${actionIndex}-after`);
-	const afterUrl = (await browserApi<{ url: string }>('GET', `/sessions/${browserSessionId}/url`))
-		.url;
-
-	return { beforeScreenshot, afterScreenshot, beforeUrl, afterUrl, redirects };
 }
 
 export async function refreshScreenshot(tabId: string, sessionId: string): Promise<string> {
@@ -526,30 +559,21 @@ export async function refreshScreenshot(tabId: string, sessionId: string): Promi
 
 export async function closeBrowser(): Promise<void> {
 	// Close all sessions via browser-service
-	for (const tab of tabs.values()) {
+	for (const [, tab] of state.tabEntries()) {
 		try {
 			await browserApi<{ success: boolean }>('POST', `/sessions/${tab.sessionId}/close`);
 		} catch {
 			// Ignore errors on close
 		}
 	}
-	tabs.clear();
-	activeTabId = null;
-	activeSessionId = null;
+	state.clear();
 }
 
 export function getViewport() {
-	return currentViewport;
+	return state.getViewport();
 }
 
 export async function getCurrentUrl(tabId: string): Promise<string> {
 	const browserSessionId = getSessionId(tabId);
-	const result = await browserApi<{ url: string }>('GET', `/sessions/${browserSessionId}/url`);
-	return result.url;
-}
-
-// Legacy sync version for backward compatibility
-export function getCurrentUrlSync(tabId: string): string {
-	const tab = tabs.get(tabId);
-	return tab?.url || 'about:blank';
+	return fetchUrl(browserSessionId);
 }

@@ -96,7 +96,7 @@
 		try {
 			const data = await apiRequest<{
 				sessionId: string;
-			}>('/api/screenshot', { method: 'POST', body: { url, prompt, plan } });
+			}>('/api/sessions/create', { method: 'POST', body: { url, prompt, plan } });
 
 			// Navigate to the new session page
 			goto(`/session/${data.sessionId}`);
