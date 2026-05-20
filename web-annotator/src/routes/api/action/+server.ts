@@ -1,12 +1,12 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { executeClick, executeScroll } from '$lib/server/browser';
+import { executeClick, executeScroll, executeType } from '$lib/server/browser';
 import { addAction, getSession } from '$lib/server/storage';
 import type { Action } from '$lib/types';
 
 export const POST: RequestHandler = async ({ request }) => {
 	const body = await request.json();
-	const { sessionId, actionType, explanation, coordinates, direction } = body;
+	const { sessionId, actionType, explanation, coordinates, direction, text } = body;
 
 	if (!sessionId || !actionType || !explanation) {
 		return json({ error: 'sessionId, actionType, and explanation are required' }, { status: 400 });
@@ -33,6 +33,11 @@ export const POST: RequestHandler = async ({ request }) => {
 				return json({ error: 'Direction required for scroll action' }, { status: 400 });
 			}
 			screenshotPath = await executeScroll(direction, sessionId, screenshotIndex);
+		} else if (actionType === 'type') {
+			if (!text) {
+				return json({ error: 'Text required for type action' }, { status: 400 });
+			}
+			screenshotPath = await executeType(text, sessionId, screenshotIndex);
 		} else if (actionType === 'stop') {
 			// For stop, use the last screenshot (either from last action or initial)
 			const lastAction = session.actions[session.actions.length - 1];
@@ -47,7 +52,8 @@ export const POST: RequestHandler = async ({ request }) => {
 			timestamp: new Date().toISOString(),
 			screenshotPath,
 			...(actionType === 'click' && { coordinates }),
-			...(actionType === 'scroll' && { direction })
+			...(actionType === 'scroll' && { direction }),
+			...(actionType === 'type' && { text })
 		};
 
 		const updatedSession = await addAction(sessionId, action);

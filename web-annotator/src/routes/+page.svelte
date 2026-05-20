@@ -7,14 +7,16 @@
 
 	let url = $state('');
 	let prompt = $state('');
+	let plan = $state('');
 	let sessionId = $state<string | null>(null);
 	let screenshotPath = $state<string | null>(null);
 	let viewport = $state({ width: 1280, height: 800 });
 	let actions = $state<Action[]>([]);
 	let isCompleted = $state(false);
 
-	let selectedAction = $state<'click' | 'scroll' | 'stop' | null>(null);
+	let selectedAction = $state<'click' | 'scroll' | 'type' | 'stop' | null>(null);
 	let scrollDirection = $state<'up' | 'down'>('down');
+	let typeText = $state('');
 	let explanation = $state('');
 	let clickCoordinates = $state<{ x: number; y: number } | null>(null);
 
@@ -22,8 +24,8 @@
 	let error = $state<string | null>(null);
 
 	async function startSession() {
-		if (!url || !prompt) {
-			error = 'Please enter both URL and prompt';
+		if (!url || !prompt || !plan) {
+			error = 'Please enter URL, prompt, and plan';
 			return;
 		}
 
@@ -34,7 +36,7 @@
 			const response = await fetch('/api/screenshot', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ url, prompt })
+				body: JSON.stringify({ url, prompt, plan })
 			});
 
 			const data = await response.json();
@@ -71,6 +73,11 @@
 			return;
 		}
 
+		if (selectedAction === 'type' && !typeText.trim()) {
+			error = 'Please enter text to type';
+			return;
+		}
+
 		loading = true;
 		error = null;
 
@@ -83,7 +90,8 @@
 					actionType: selectedAction,
 					explanation,
 					coordinates: clickCoordinates,
-					direction: scrollDirection
+					direction: scrollDirection,
+					text: typeText
 				})
 			});
 
@@ -101,6 +109,7 @@
 			selectedAction = null;
 			explanation = '';
 			clickCoordinates = null;
+			typeText = '';
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'An error occurred';
 		} finally {
@@ -115,15 +124,18 @@
 		isCompleted = false;
 		url = '';
 		prompt = '';
+		plan = '';
 		selectedAction = null;
 		explanation = '';
 		clickCoordinates = null;
+		typeText = '';
 	}
 
 	let canExecute = $derived(
 		selectedAction !== null &&
 			explanation.trim() !== '' &&
-			(selectedAction !== 'click' || clickCoordinates !== null)
+			(selectedAction !== 'click' || clickCoordinates !== null) &&
+			(selectedAction !== 'type' || typeText.trim() !== '')
 	);
 </script>
 
@@ -160,7 +172,18 @@
 				></textarea>
 			</div>
 
-			<button onclick={startSession} disabled={loading || !url || !prompt}>
+			<div class="form-group">
+				<label for="plan">Plan</label>
+				<textarea
+					id="plan"
+					bind:value={plan}
+					placeholder="Describe your strategy for completing this task step by step..."
+					rows="4"
+					disabled={loading}
+				></textarea>
+			</div>
+
+			<button onclick={startSession} disabled={loading || !url || !prompt || !plan}>
 				{loading ? 'Loading...' : 'Start Session'}
 			</button>
 		</section>
@@ -180,6 +203,10 @@
 			<div class="task-info">
 				<p><strong>URL:</strong> {url}</p>
 				<p><strong>Task:</strong> {prompt}</p>
+				<details class="plan-details">
+					<summary><strong>Plan</strong></summary>
+					<p class="plan-text">{plan}</p>
+				</details>
 			</div>
 
 			<div class="main-content">
@@ -201,11 +228,13 @@
 					<ActionPanel
 						{selectedAction}
 						{scrollDirection}
+						{typeText}
 						onactionchange={(a) => {
 							selectedAction = a;
 							clickCoordinates = null;
 						}}
 						onscrolldirectionchange={(d) => (scrollDirection = d)}
+						ontextchange={(t) => (typeText = t)}
 					/>
 
 					<ExplanationInput
@@ -332,6 +361,24 @@
 
 	.task-info p {
 		margin: 0.25rem 0;
+	}
+
+	.plan-details {
+		margin-top: 0.5rem;
+	}
+
+	.plan-details summary {
+		cursor: pointer;
+		user-select: none;
+	}
+
+	.plan-text {
+		margin: 0.5rem 0 0 0;
+		padding: 0.75rem;
+		background: #f5f5f5;
+		border-radius: 6px;
+		font-size: 0.9rem;
+		white-space: pre-wrap;
 	}
 
 	.main-content {

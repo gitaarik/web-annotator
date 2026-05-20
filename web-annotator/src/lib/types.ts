@@ -2,6 +2,7 @@ export interface AnnotationSession {
 	id: string;
 	url: string;
 	prompt: string;
+	plan: string;
 	createdAt: string;
 	actions: Action[];
 	initialScreenshot: string;
@@ -9,11 +10,12 @@ export interface AnnotationSession {
 }
 
 export interface Action {
-	type: 'click' | 'scroll' | 'stop';
+	type: 'click' | 'scroll' | 'type' | 'stop';
 	explanation: string;
 	timestamp: string;
 	coordinates?: { x: number; y: number };
 	direction?: 'up' | 'down';
+	text?: string;
 	screenshotPath: string;
 }
 

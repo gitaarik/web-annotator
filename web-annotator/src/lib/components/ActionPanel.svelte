@@ -1,12 +1,14 @@
 <script lang="ts">
 	interface Props {
-		selectedAction: 'click' | 'scroll' | 'stop' | null;
+		selectedAction: 'click' | 'scroll' | 'type' | 'stop' | null;
 		scrollDirection: 'up' | 'down';
-		onactionchange: (action: 'click' | 'scroll' | 'stop') => void;
+		typeText: string;
+		onactionchange: (action: 'click' | 'scroll' | 'type' | 'stop') => void;
 		onscrolldirectionchange: (direction: 'up' | 'down') => void;
+		ontextchange: (text: string) => void;
 	}
 
-	let { selectedAction, scrollDirection, onactionchange, onscrolldirectionchange }: Props = $props();
+	let { selectedAction, scrollDirection, typeText, onactionchange, onscrolldirectionchange, ontextchange }: Props = $props();
 </script>
 
 <div class="action-panel">
@@ -60,6 +62,30 @@
 					/>
 					Down
 				</label>
+			</div>
+		{/if}
+
+		<label class:selected={selectedAction === 'type'}>
+			<input
+				type="radio"
+				name="action"
+				value="type"
+				checked={selectedAction === 'type'}
+				onchange={() => onactionchange('type')}
+			/>
+			<span class="action-icon">&#9000;</span>
+			Type
+			<span class="action-hint">Type text into the focused element</span>
+		</label>
+
+		{#if selectedAction === 'type'}
+			<div class="type-input">
+				<input
+					type="text"
+					placeholder="Text to type..."
+					value={typeText}
+					oninput={(e) => ontextchange(e.currentTarget.value)}
+				/>
 			</div>
 		{/if}
 
@@ -135,6 +161,24 @@
 
 	.scroll-direction label {
 		padding: 0.5rem 1rem;
+	}
+
+	.type-input {
+		padding-left: 2rem;
+	}
+
+	.type-input input {
+		width: 100%;
+		padding: 0.5rem 0.75rem;
+		border: 2px solid #ddd;
+		border-radius: 6px;
+		font-size: 0.9rem;
+		font-family: inherit;
+	}
+
+	.type-input input:focus {
+		outline: none;
+		border-color: #0066cc;
 	}
 
 	input[type='radio'] {

@@ -13,6 +13,8 @@
 				return `Click at (${action.coordinates?.x}, ${action.coordinates?.y})`;
 			case 'scroll':
 				return `Scroll ${action.direction}`;
+			case 'type':
+				return `Type "${action.text}"`;
 			case 'stop':
 				return 'Stop - Task completed';
 			default:

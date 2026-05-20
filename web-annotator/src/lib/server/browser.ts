@@ -84,6 +84,27 @@ export async function executeScroll(
 	return `/screenshots/${sessionId}/${actionIndex}.png`;
 }
 
+export async function executeType(
+	text: string,
+	sessionId: string,
+	actionIndex: number
+): Promise<string> {
+	const p = await getPage();
+	await p.keyboard.type(text, { delay: 50 });
+	await p.waitForTimeout(300);
+
+	const screenshotPath = path.join(
+		process.cwd(),
+		'static',
+		'screenshots',
+		sessionId,
+		`${actionIndex}.png`
+	);
+	await p.screenshot({ path: screenshotPath, fullPage: false });
+
+	return `/screenshots/${sessionId}/${actionIndex}.png`;
+}
+
 export async function closeBrowser(): Promise<void> {
 	if (page) {
 		await page.close();

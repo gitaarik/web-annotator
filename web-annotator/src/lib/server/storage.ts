@@ -16,6 +16,7 @@ export async function createSession(
 	id: string,
 	url: string,
 	prompt: string,
+	plan: string,
 	initialScreenshot: string
 ): Promise<AnnotationSession> {
 	await ensureDataDir();
@@ -24,6 +25,7 @@ export async function createSession(
 		id,
 		url,
 		prompt,
+		plan,
 		createdAt: new Date().toISOString(),
 		actions: [],
 		initialScreenshot

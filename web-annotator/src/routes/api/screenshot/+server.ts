@@ -5,17 +5,17 @@ import { navigateAndScreenshot, getViewport } from '$lib/server/browser';
 import { createSession } from '$lib/server/storage';
 
 export const POST: RequestHandler = async ({ request }) => {
-	const { url, prompt } = await request.json();
+	const { url, prompt, plan } = await request.json();
 
-	if (!url || !prompt) {
-		return json({ error: 'URL and prompt are required' }, { status: 400 });
+	if (!url || !prompt || !plan) {
+		return json({ error: 'URL, prompt, and plan are required' }, { status: 400 });
 	}
 
 	const sessionId = uuidv4();
 
 	try {
 		const screenshotPath = await navigateAndScreenshot(url, sessionId);
-		const session = await createSession(sessionId, url, prompt, screenshotPath);
+		const session = await createSession(sessionId, url, prompt, plan, screenshotPath);
 		const viewport = getViewport();
 
 		return json({
