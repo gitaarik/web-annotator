@@ -1,9 +1,19 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import ScreenshotViewer from '$lib/components/ScreenshotViewer.svelte';
 	import ActionPanel from '$lib/components/ActionPanel.svelte';
 	import ExplanationInput from '$lib/components/ExplanationInput.svelte';
 	import SessionHistory from '$lib/components/SessionHistory.svelte';
 	import type { Action } from '$lib/types';
+
+	interface SessionSummary {
+		id: string;
+		url: string;
+		prompt: string;
+		createdAt: string;
+		actionCount: number;
+		isCompleted: boolean;
+	}
 
 	let url = $state('');
 	let prompt = $state('');
@@ -22,6 +32,53 @@
 
 	let loading = $state(false);
 	let error = $state<string | null>(null);
+
+	let savedSessions = $state<SessionSummary[]>([]);
+	let loadingSessions = $state(true);
+
+	onMount(() => {
+		fetchSavedSessions();
+	});
+
+	async function fetchSavedSessions() {
+		try {
+			const response = await fetch('/api/sessions');
+			if (response.ok) {
+				savedSessions = await response.json();
+			}
+		} catch {
+			// Ignore errors fetching sessions
+		} finally {
+			loadingSessions = false;
+		}
+	}
+
+	async function resumeSession(id: string) {
+		loading = true;
+		error = null;
+
+		try {
+			const response = await fetch(`/api/sessions/${id}`, { method: 'POST' });
+			const data = await response.json();
+
+			if (!response.ok) {
+				throw new Error(data.error || 'Failed to resume session');
+			}
+
+			sessionId = data.session.id;
+			url = data.session.url;
+			prompt = data.session.prompt;
+			plan = data.session.plan;
+			actions = data.session.actions;
+			screenshotPath = data.screenshotPath;
+			viewport = data.viewport;
+			isCompleted = false;
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'An error occurred';
+		} finally {
+			loading = false;
+		}
+	}
 
 	async function startSession() {
 		if (!url || !prompt || !plan) {
@@ -129,6 +186,7 @@
 		explanation = '';
 		clickCoordinates = null;
 		typeText = '';
+		fetchSavedSessions();
 	}
 
 	let canExecute = $derived(
@@ -187,6 +245,28 @@
 				{loading ? 'Loading...' : 'Start Session'}
 			</button>
 		</section>
+
+		{#if !loadingSessions && savedSessions.length > 0}
+			<section class="saved-sessions">
+				<h2>Resume Saved Session</h2>
+				<div class="sessions-list">
+					{#each savedSessions.filter(s => !s.isCompleted) as session}
+						<button
+							class="session-card"
+							onclick={() => resumeSession(session.id)}
+							disabled={loading}
+						>
+							<div class="session-url">{session.url}</div>
+							<div class="session-prompt">{session.prompt}</div>
+							<div class="session-meta">
+								<span>{session.actionCount} actions</span>
+								<span>{new Date(session.createdAt).toLocaleDateString()}</span>
+							</div>
+						</button>
+					{/each}
+				</div>
+			</section>
+		{/if}
 	{:else if isCompleted}
 		<section class="completed">
 			<h2>Annotation Complete</h2>
@@ -344,6 +424,60 @@
 	button:disabled {
 		background: #ccc;
 		cursor: not-allowed;
+	}
+
+	.saved-sessions {
+		max-width: 600px;
+		margin-top: 2rem;
+	}
+
+	.sessions-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+
+	.session-card {
+		display: block;
+		width: 100%;
+		text-align: left;
+		background: white;
+		color: #1a1a1a;
+		padding: 1rem;
+		border: 2px solid #ddd;
+		border-radius: 8px;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.session-card:hover:not(:disabled) {
+		border-color: #0066cc;
+		background: #f8faff;
+	}
+
+	.session-url {
+		font-size: 0.85rem;
+		color: #666;
+		margin-bottom: 0.25rem;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.session-prompt {
+		font-weight: 500;
+		margin-bottom: 0.5rem;
+		display: -webkit-box;
+		-webkit-line-clamp: 2;
+		-webkit-box-orient: vertical;
+		overflow: hidden;
+	}
+
+	.session-meta {
+		display: flex;
+		gap: 1rem;
+		font-size: 0.8rem;
+		color: #888;
 	}
 
 	.annotation-interface {

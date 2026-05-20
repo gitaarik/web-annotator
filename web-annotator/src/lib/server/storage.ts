@@ -61,8 +61,18 @@ export async function addAction(
 	return session;
 }
 
-export async function listSessions(): Promise<string[]> {
+export async function listSessions(): Promise<AnnotationSession[]> {
 	await ensureDataDir();
 	const files = await fs.readdir(DATA_DIR);
-	return files.filter((f: string) => f.endsWith('.json')).map((f: string) => f.replace('.json', ''));
+	const sessionFiles = files.filter((f: string) => f.endsWith('.json'));
+
+	const sessions: AnnotationSession[] = [];
+	for (const file of sessionFiles) {
+		const data = await fs.readFile(path.join(DATA_DIR, file), 'utf-8');
+		sessions.push(JSON.parse(data) as AnnotationSession);
+	}
+
+	// Sort by creation date, newest first
+	sessions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+	return sessions;
 }
