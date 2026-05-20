@@ -148,6 +148,31 @@
 		}
 	}
 
+	async function handleExportSession() {
+		if (!sessionId) return;
+
+		try {
+			const response = await fetch(`/api/sessions/${sessionId}`);
+			const data = await response.json();
+
+			if (!response.ok) {
+				throw new Error(data.error || 'Failed to fetch session');
+			}
+
+			const blob = new Blob([JSON.stringify(data.session, null, 2)], { type: 'application/json' });
+			const url = URL.createObjectURL(blob);
+			const a = document.createElement('a');
+			a.href = url;
+			a.download = `session-${sessionId}.json`;
+			document.body.appendChild(a);
+			a.click();
+			document.body.removeChild(a);
+			URL.revokeObjectURL(url);
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'An error occurred';
+		}
+	}
+
 	async function handleRefreshScreenshot() {
 		if (!sessionId) return;
 
@@ -558,14 +583,23 @@
 							{#if clickCoordinates && selectedAction === 'click'}
 								<span class="coordinates">Selected: ({clickCoordinates.x}, {clickCoordinates.y})</span>
 							{/if}
-							<button
-								class="refresh-btn"
-								onclick={handleRefreshScreenshot}
-								disabled={refreshLoading}
-								title="Refresh screenshot"
-							>
-								{refreshLoading ? '...' : '↻'} Refresh
-							</button>
+							<div class="toolbar-buttons">
+								<button
+									class="toolbar-btn"
+									onclick={handleRefreshScreenshot}
+									disabled={refreshLoading}
+									title="Refresh screenshot"
+								>
+									{refreshLoading ? '...' : '↻'} Refresh
+								</button>
+								<button
+									class="toolbar-btn"
+									onclick={handleExportSession}
+									title="Export session as JSON"
+								>
+									↓ Export
+								</button>
+							</div>
 						</div>
 					{/if}
 				</div>
@@ -859,7 +893,13 @@
 		gap: 1rem;
 	}
 
-	.refresh-btn {
+	.toolbar-buttons {
+		display: flex;
+		gap: 0.5rem;
+		margin-left: auto;
+	}
+
+	.toolbar-btn {
 		padding: 0.4rem 0.75rem;
 		font-size: 0.85rem;
 		background: #f3f4f6;
@@ -868,15 +908,14 @@
 		border-radius: 6px;
 		cursor: pointer;
 		transition: all 0.2s;
-		margin-left: auto;
 	}
 
-	.refresh-btn:hover:not(:disabled) {
+	.toolbar-btn:hover:not(:disabled) {
 		background: #e5e7eb;
 		border-color: #9ca3af;
 	}
 
-	.refresh-btn:disabled {
+	.toolbar-btn:disabled {
 		opacity: 0.6;
 		cursor: not-allowed;
 	}
