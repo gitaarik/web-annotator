@@ -1,42 +1,44 @@
-# sv
+# Web Browser Annotation Tool
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
 
-## Creating a project
 
-If you're seeing this, you've probably already done this step. Congrats!
+A tool for recording and annotating browser sessions to train AI models on web navigation.
 
-```sh
-# create a new project
-npx sv create my-app
+## Quick Start
+
+```bash
+pnpm install
+pnpm docker:browser  # Start the browser service (in one terminal)
+pnpm dev             # Start the dev server (in another terminal)
 ```
 
-To recreate this project with the same configuration:
+Then open http://localhost:5173
 
-```sh
-# recreate this project
-npx sv@0.15.3 create --template minimal --types ts --install npm web-annotator
-```
+You can also view the browser directly at http://localhost:6080/vnc.html (noVNC).
 
-## Developing
+## What It Does
 
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
+An annotator enters a URL and a task prompt, then records step-by-step actions showing how to accomplish that task. Each action includes an explanation of what they're doing and why. The result is exportable training data for AI web agents.
 
-```sh
-npm run dev
+## Features Implemented
 
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
-```
+- **Session management**: Create, list, continue, and export sessions
+- **Live browser control**: Real Chromium instance via Playwright
+- **Actions**: Click, hover, scroll, type, wait, stop, plus tab management (new/switch/close)
+- **Visual feedback**: Click/hover markers, scroll indicators, type preview on screenshots
+- **Action history**: Step through past actions, see screenshots at each step
+- **JSON export**: Full session data with screenshots and action sequences
 
-## Building
+## Tech Stack
 
-To create a production version of your app:
+- SvelteKit + Svelte 5 (runes)
+- Playwright for browser automation
+- Vitest for testing
 
-```sh
-npm run build
-```
+## Project Structure
 
-You can preview the production build with `npm run preview`.
-
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+- `src/routes/` - Pages (home, session viewer)
+- `src/routes/api/` - API endpoints for browser control
+- `src/lib/components/` - UI components
+- `src/lib/server/` - Server-side browser management
+- `data/sessions/` - Saved session JSON files (gitignored)

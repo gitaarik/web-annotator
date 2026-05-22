@@ -25,3 +25,6 @@ vite.config.ts.timestamp-*
 # Annotation data (user-generated)
 /data/sessions/
 /static/screenshots/
+
+# Video
+intro-video.mkv
