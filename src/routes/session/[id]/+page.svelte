@@ -738,6 +738,13 @@
 				tabs = response.session.tabs;
 			}
 
+			// The browser is now at the state after this just-recorded action, so
+			// advance the playhead to the new frontier. Keeps replayedUpTo in sync
+			// with the actual browser position (it's the persisted value a reload
+			// restores) — otherwise recording leaves it stale and a refresh shows
+			// the wrong step under a live last-step screenshot.
+			replayedUpTo = actions.length - 1;
+
 			// Ensure form is cleared after successful action
 			selectedAction = null;
 			explanation = '';
