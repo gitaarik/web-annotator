@@ -2,22 +2,18 @@
 	interface Props {
 		url: string;
 		prompt: string;
-		plan: string;
 		loading: boolean;
 		onUrlChange: (value: string) => void;
 		onPromptChange: (value: string) => void;
-		onPlanChange: (value: string) => void;
 		onSubmit: () => void;
 	}
 
 	let {
 		url,
 		prompt,
-		plan,
 		loading,
 		onUrlChange,
 		onPromptChange,
-		onPlanChange,
 		onSubmit
 	}: Props = $props();
 </script>
@@ -49,19 +45,7 @@
 		></textarea>
 	</div>
 
-	<div class="form-group">
-		<label for="plan">Plan</label>
-		<textarea
-			id="plan"
-			value={plan}
-			oninput={(e) => onPlanChange(e.currentTarget.value)}
-			placeholder="Describe your strategy for completing this task step by step..."
-			rows="4"
-			disabled={loading}
-		></textarea>
-	</div>
-
-	<button onclick={onSubmit} disabled={loading || !url || !prompt || !plan}>
+	<button onclick={onSubmit} disabled={loading || !url || !prompt}>
 		{loading ? 'Loading...' : 'Start Session'}
 	</button>
 </section>

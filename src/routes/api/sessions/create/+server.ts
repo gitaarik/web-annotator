@@ -5,17 +5,17 @@ import { createSession } from '$lib/server/storage';
 import { badRequest, errorResponse, getServerErrorMessage } from '$lib/server/api-utils';
 
 export const POST: RequestHandler = async ({ request }) => {
-	let body: { url?: string; prompt?: string; plan?: string };
+	let body: { url?: string; prompt?: string };
 	try {
 		body = await request.json();
 	} catch {
 		return badRequest('Invalid JSON');
 	}
 
-	const { url, prompt, plan } = body;
+	const { url, prompt } = body;
 
-	if (!url || !prompt || !plan) {
-		return badRequest('URL, prompt, and plan are required');
+	if (!url || !prompt) {
+		return badRequest('URL and prompt are required');
 	}
 
 	const sessionId = crypto.randomUUID();
@@ -26,7 +26,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		const { tabId } = await createTab(url, sessionId);
 		// Capture initial screenshot (createTab already navigated and waited for stability)
 		const screenshotPath = await refreshScreenshot(tabId, sessionId);
-		const session = await createSession(sessionId, url, prompt, plan, screenshotPath, tabId);
+		const session = await createSession(sessionId, url, prompt, screenshotPath, tabId);
 		const viewport = getViewport();
 
 		return json({

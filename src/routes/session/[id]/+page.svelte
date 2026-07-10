@@ -964,10 +964,6 @@
 			<div class="task-info">
 				<p><strong>URL:</strong> {session.url}</p>
 				<p><strong>Task:</strong> {session.prompt}</p>
-				<details class="plan-details">
-					<summary><strong>Plan</strong></summary>
-					<p class="plan-text">{session.plan}</p>
-				</details>
 			</div>
 
 			{#if tabs.length > 0}
@@ -1270,24 +1266,6 @@
 
 	.task-info p {
 		margin: var(--space-xs) 0;
-	}
-
-	.plan-details {
-		margin-top: var(--space-sm);
-	}
-
-	.plan-details summary {
-		cursor: pointer;
-		user-select: none;
-	}
-
-	.plan-text {
-		margin: var(--space-sm) 0 0 0;
-		padding: var(--space-md);
-		background: var(--color-bg-tertiary);
-		border-radius: var(--radius-md);
-		font-size: 0.9rem;
-		white-space: pre-wrap;
 	}
 
 	.main-content {

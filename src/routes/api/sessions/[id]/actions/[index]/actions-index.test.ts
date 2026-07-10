@@ -9,7 +9,6 @@ const mockSession: AnnotationSession = {
 	id: 'session-1',
 	url: 'https://example.com',
 	prompt: 'Test prompt',
-	plan: 'Test plan',
 	createdAt: '2024-01-01T00:00:00.000Z',
 	tabs: [{ id: 'tab-1', url: 'https://example.com', createdAt: '2024-01-01T00:00:00.000Z' }],
 	activeTabId: 'tab-1',

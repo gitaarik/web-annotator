@@ -26,7 +26,6 @@ export async function createSession(
 	id: string,
 	url: string,
 	prompt: string,
-	plan: string,
 	initialScreenshot: string,
 	initialTabId: string
 ): Promise<AnnotationSession> {
@@ -42,7 +41,6 @@ export async function createSession(
 		id,
 		url,
 		prompt,
-		plan,
 		createdAt: new Date().toISOString(),
 		tabs: [initialTab],
 		activeTabId: initialTabId,

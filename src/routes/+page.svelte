@@ -8,7 +8,6 @@
 
 	let url = $state('');
 	let prompt = $state('');
-	let plan = $state('');
 
 	let loading = $state(false);
 	let error = $state<string | null>(null);
@@ -21,7 +20,6 @@
 		showNewSessionForm = false;
 		url = '';
 		prompt = '';
-		plan = '';
 		error = null;
 	}
 
@@ -85,8 +83,8 @@
 	}
 
 	async function startSession() {
-		if (!url || !prompt || !plan) {
-			error = 'Please enter URL, prompt, and plan';
+		if (!url || !prompt) {
+			error = 'Please enter URL and prompt';
 			return;
 		}
 
@@ -96,7 +94,7 @@
 		try {
 			const data = await apiRequest<{
 				sessionId: string;
-			}>('/api/sessions/create', { method: 'POST', body: { url, prompt, plan } });
+			}>('/api/sessions/create', { method: 'POST', body: { url, prompt } });
 
 			// Navigate to the new session page
 			goto(`/session/${data.sessionId}`);
@@ -127,11 +125,9 @@
 			<SetupForm
 				{url}
 				{prompt}
-				{plan}
 				{loading}
 				onUrlChange={(v) => (url = v)}
 				onPromptChange={(v) => (prompt = v)}
-				onPlanChange={(v) => (plan = v)}
 				onSubmit={startSession}
 			/>
 			<button class="cancel-btn" onclick={cancelNewSession} disabled={loading}>

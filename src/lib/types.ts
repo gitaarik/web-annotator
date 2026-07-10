@@ -15,7 +15,6 @@ export interface AnnotationSession {
 	id: string;
 	url: string;
 	prompt: string;
-	plan: string;
 	createdAt: string;
 	tabs: Tab[];
 	activeTabId: string;
