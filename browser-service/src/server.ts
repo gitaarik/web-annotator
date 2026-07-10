@@ -20,6 +20,18 @@ import { osClick, osType, osClearInput } from './os-input.js';
 const app: Express = express();
 app.use(express.json());
 
+// Request logger: one line per request with status + duration. Invaluable for
+// spotting which CDP operation stalls (e.g. a 10s Page.navigate on a wedged
+// renderer). Skips the frequent /status healthcheck to keep noise down.
+app.use((req, res, next) => {
+	if (req.path === '/status') return next();
+	const t0 = Date.now();
+	res.on('finish', () => {
+		console.log(`[HTTP] ${req.method} ${req.path} -> ${res.statusCode} (${Date.now() - t0}ms)`);
+	});
+	next();
+});
+
 // CDP clients per session
 const cdpClients = new Map<string, CdpClient>();
 
@@ -92,7 +104,21 @@ app.get('/sessions/:id', (req, res) => {
 
 app.post('/sessions/:id/launch', async (req, res) => {
 	try {
-		const { url } = req.body || {};
+		const { url, forceNew } = req.body || {};
+
+		// forceNew tears down an existing (e.g. hard-wedged, unrecoverable) Chrome
+		// so we relaunch a clean one. This is the recovery path when Page.navigate
+		// can't rescue a blocked renderer.
+		if (forceNew) {
+			console.log(`[Session] Force-restarting Chrome for ${req.params.id}`);
+			const existingClient = cdpClients.get(req.params.id);
+			if (existingClient) {
+				existingClient.close();
+				cdpClients.delete(req.params.id);
+			}
+			await closeSession(req.params.id);
+		}
+
 		const { session, isNew } = await getOrCreateSession(req.params.id, { url });
 
 		// Create CDP client for new sessions and inject stealth scripts
@@ -176,6 +202,22 @@ app.post('/sessions/:id/navigate', async (req, res) => {
 		res.json({ success: true, url: currentUrl });
 	} catch (err) {
 		sendError(res, err);
+	}
+});
+
+// Fast renderer liveness probe (used on reconnect to decide attach vs restart).
+// Returns quickly whether the page's main thread is servicing CDP.
+app.get('/sessions/:id/health', async (req, res) => {
+	try {
+		const client = await getCdpClient(req.params.id);
+		if (!client) {
+			res.status(404).json({ error: 'Session not found' });
+			return;
+		}
+		const responsive = await client.isRendererResponsive();
+		res.json({ responsive });
+	} catch (err) {
+		res.json({ responsive: false, error: err instanceof Error ? err.message : String(err) });
 	}
 });
 

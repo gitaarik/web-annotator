@@ -244,6 +244,7 @@ export class CdpClient {
 	 */
 	private async rendererOp<T>(fn: () => Promise<T>): Promise<T> {
 		if (Date.now() < this.wedgedUntil) {
+			console.log('[CDP] renderer op short-circuited (breaker open)');
 			throw new RendererUnresponsiveError();
 		}
 		try {
@@ -253,6 +254,7 @@ export class CdpClient {
 		} catch (err) {
 			// A command timeout on a renderer op means the main thread is blocked.
 			if (err instanceof Error && err.message.startsWith('CDP timeout')) {
+				console.warn(`[CDP] renderer wedged (${err.message}); breaker open for ${RENDERER_WEDGE_TTL_MS}ms`);
 				this.wedgedUntil = Date.now() + RENDERER_WEDGE_TTL_MS;
 				throw new RendererUnresponsiveError();
 			}
@@ -439,6 +441,8 @@ export class CdpClient {
 		// A navigation discards the current (possibly wedged) document, so give the
 		// renderer a clean slate — clear the circuit breaker.
 		this.wedgedUntil = 0;
+		const t0 = Date.now();
+		console.log(`[CDP] navigate -> ${url.slice(0, 80)}`);
 		await this.send('Page.navigate', { url });
 		// Wait for load event
 		await this.send('Page.enable');
@@ -473,6 +477,7 @@ export class CdpClient {
 			};
 			checkLoad();
 		});
+		console.log(`[CDP] navigate done in ${Date.now() - t0}ms`);
 	}
 
 	/**

@@ -198,34 +198,45 @@ export async function createTab(
 		isNew: boolean;
 		replayPosition?: number;
 	}>('POST', `/sessions/${sessionId}/launch`, { url });
+	console.log(`[browser] launch ${sessionId}: isNew=${launchResult.isNew}`);
 
+	let isNew = launchResult.isNew;
+	let replayPosition = launchResult.replayPosition ?? -1;
 	let currentUrl = url || 'about:blank';
-	if (launchResult.isNew && url) {
-		// Fresh Chrome: navigate to the target URL.
+
+	if (!isNew) {
+		// Reconnecting to an existing Chrome. Probe renderer health first (fast):
+		// if the page is alive, attach to its live state so the reload continues
+		// the session; if it's hard-wedged (can't be rescued by Page.navigate,
+		// which also hangs), relaunch Chrome fresh — resetting to a clean browser
+		// with the playhead back at the start.
+		const healthy = await isRendererHealthy(sessionId);
+		console.log(`[browser] reconnect ${sessionId}: renderer healthy=${healthy}`);
+		if (healthy) {
+			currentUrl = await fetchUrl(sessionId);
+			console.log(`[browser] reconnect attach ok: ${currentUrl}`);
+		} else {
+			console.warn(`[browser] reconnect renderer wedged, force-restarting Chrome`);
+			const relaunch = await browserApi<{ isNew: boolean; replayPosition?: number }>(
+				'POST',
+				`/sessions/${sessionId}/launch`,
+				{ url, forceNew: true }
+			);
+			isNew = true;
+			replayPosition = relaunch.replayPosition ?? -1;
+			console.log(`[browser] force-restart complete: isNew=${isNew}`);
+		}
+	}
+
+	if (isNew && url) {
+		// Fresh Chrome (first launch or after a force-restart): navigate to the URL.
 		const navResult = await browserApi<{ success: boolean; url: string }>(
 			'POST',
 			`/sessions/${sessionId}/navigate`,
 			{ url }
 		);
 		currentUrl = navResult.url;
-	} else if (!launchResult.isNew) {
-		// Reconnecting to an existing Chrome: don't navigate — attach to whatever
-		// the browser is currently showing so a page reload continues the session.
-		try {
-			currentUrl = await fetchUrl(sessionId);
-		} catch (err) {
-			// The live page/CDP connection is unhealthy (e.g. a wedged renderer).
-			// Recover by reloading the URL rather than leaving the caller hanging.
-			console.warn('[browser] Reconnect attach failed, reloading page:', err);
-			if (url) {
-				const navResult = await browserApi<{ success: boolean; url: string }>(
-					'POST',
-					`/sessions/${sessionId}/navigate`,
-					{ url }
-				);
-				currentUrl = navResult.url;
-			}
-		}
+		console.log(`[browser] navigated fresh Chrome to ${currentUrl}`);
 	}
 
 	// Track locally
@@ -236,8 +247,8 @@ export async function createTab(
 	return {
 		tabId,
 		url: currentUrl,
-		isNew: launchResult.isNew,
-		replayPosition: launchResult.replayPosition ?? -1
+		isNew,
+		replayPosition
 	};
 }
 
@@ -250,6 +261,23 @@ export async function setReplayPosition(tabId: string, position: number): Promis
 	await browserApi<{ success: boolean }>('POST', `/sessions/${browserSessionId}/position`, {
 		position
 	});
+}
+
+/**
+ * Fast probe of whether a session's renderer main thread is servicing CDP.
+ * Returns false on any error (unreachable / wedged) so callers treat it as
+ * needing recovery.
+ */
+async function isRendererHealthy(browserSessionId: string): Promise<boolean> {
+	try {
+		const result = await browserApi<{ responsive: boolean }>(
+			'GET',
+			`/sessions/${browserSessionId}/health`
+		);
+		return result.responsive === true;
+	} catch {
+		return false;
+	}
 }
 
 /**
