@@ -39,6 +39,22 @@ async function getCdpClient(sessionId: string): Promise<CdpClient | null> {
 	return client;
 }
 
+/**
+ * Send an error response. A wedged renderer becomes a recoverable 503 (carrying
+ * a code) so the client can prompt a reload instead of treating it as a generic
+ * failure; everything else is a 500.
+ */
+function sendError(res: express.Response, err: unknown): void {
+	if (err instanceof RendererUnresponsiveError) {
+		res.status(503).json({ error: err.message, code: err.code, recoverable: true });
+		return;
+	}
+	res.status(500).json({
+		success: false,
+		error: err instanceof Error ? err.message : String(err)
+	});
+}
+
 // =============================================================================
 // STATUS ENDPOINTS
 // =============================================================================
@@ -97,10 +113,7 @@ app.post('/sessions/:id/launch', async (req, res) => {
 		});
 	} catch (err) {
 		console.error('[Server] Launch error:', err);
-		res.status(500).json({
-			success: false,
-			error: err instanceof Error ? err.message : String(err)
-		});
+		sendError(res, err);
 	}
 });
 
@@ -135,10 +148,7 @@ app.post('/sessions/:id/close', async (req, res) => {
 		const closed = await closeSession(req.params.id);
 		res.json({ success: closed });
 	} catch (err) {
-		res.status(500).json({
-			success: false,
-			error: err instanceof Error ? err.message : String(err)
-		});
+		sendError(res, err);
 	}
 });
 
@@ -165,10 +175,7 @@ app.post('/sessions/:id/navigate', async (req, res) => {
 
 		res.json({ success: true, url: currentUrl });
 	} catch (err) {
-		res.status(500).json({
-			success: false,
-			error: err instanceof Error ? err.message : String(err)
-		});
+		sendError(res, err);
 	}
 });
 
@@ -183,9 +190,7 @@ app.get('/sessions/:id/url', async (req, res) => {
 		const url = await client.getUrl();
 		res.json({ url });
 	} catch (err) {
-		res.status(500).json({
-			error: err instanceof Error ? err.message : String(err)
-		});
+		sendError(res, err);
 	}
 });
 
@@ -256,10 +261,7 @@ app.post('/sessions/:id/click', async (req, res) => {
 		res.json({ success: true, method: 'cdp' });
 	} catch (err) {
 		console.error('[Click] Error:', err);
-		res.status(500).json({
-			success: false,
-			error: err instanceof Error ? err.message : String(err)
-		});
+		sendError(res, err);
 	}
 });
 
@@ -281,10 +283,7 @@ app.post('/sessions/:id/move', async (req, res) => {
 		await client.cdpMove(x, y);
 		res.json({ success: true });
 	} catch (err) {
-		res.status(500).json({
-			success: false,
-			error: err instanceof Error ? err.message : String(err)
-		});
+		sendError(res, err);
 	}
 });
 
@@ -323,10 +322,7 @@ app.post('/sessions/:id/type', async (req, res) => {
 		await client.cdpType(text, charDelayMs);
 		res.json({ success: true, method: 'cdp' });
 	} catch (err) {
-		res.status(500).json({
-			success: false,
-			error: err instanceof Error ? err.message : String(err)
-		});
+		sendError(res, err);
 	}
 });
 
@@ -347,10 +343,7 @@ app.post('/sessions/:id/clear', async (req, res) => {
 
 		res.status(500).json({ error: 'Could not focus browser window' });
 	} catch (err) {
-		res.status(500).json({
-			success: false,
-			error: err instanceof Error ? err.message : String(err)
-		});
+		sendError(res, err);
 	}
 });
 
@@ -367,10 +360,7 @@ app.post('/sessions/:id/scroll', async (req, res) => {
 		await client.scroll(deltaX, deltaY, x, y);
 		res.json({ success: true });
 	} catch (err) {
-		res.status(500).json({
-			success: false,
-			error: err instanceof Error ? err.message : String(err)
-		});
+		sendError(res, err);
 	}
 });
 

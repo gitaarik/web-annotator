@@ -40,6 +40,21 @@ const NAVIGATE_LOAD_TIMEOUT_MS = 30000;
 const CONNECT_TIMEOUT_MS = 10000;
 
 /**
+ * Default per-command timeout. A wedged renderer (blocked main thread) makes
+ * every CDP call — input, evaluate, screenshot — hang until this fires, so it's
+ * kept short: an interactive op that hasn't answered in 10s isn't coming back.
+ */
+const DEFAULT_SEND_TIMEOUT_MS = 10000;
+
+/**
+ * How long a detected wedge short-circuits further renderer ops. Once one call
+ * times out we assume the main thread is blocked and fail the rest of the
+ * action instantly (instead of waiting the full timeout on each), until this
+ * window passes and we probe again.
+ */
+const RENDERER_WEDGE_TTL_MS = 2000;
+
+/**
  * Thrown when the renderer's main thread is blocked (e.g. the page's own
  * JavaScript is stuck in a synchronous wait), so it can't produce a frame or
  * answer CDP. Callers can distinguish this from transient failures and prompt
@@ -61,6 +76,9 @@ export class CdpClient {
 	private messageId = 0;
 	private pendingRequests = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
 	private pageWsUrl: string | null = null;
+	// Timestamp (ms) until which the renderer is assumed wedged; renderer ops
+	// short-circuit while this is in the future. 0 = healthy.
+	private wedgedUntil = 0;
 
 	constructor(
 		public readonly cdpPort: number,
@@ -219,15 +237,39 @@ export class CdpClient {
 	}
 
 	/**
+	 * Run a renderer-dependent operation behind a circuit breaker. If the
+	 * renderer was just seen wedged, fail instantly instead of waiting the full
+	 * timeout again; if this op times out, trip the breaker and surface it as a
+	 * RendererUnresponsiveError (recoverable) rather than a generic CDP timeout.
+	 */
+	private async rendererOp<T>(fn: () => Promise<T>): Promise<T> {
+		if (Date.now() < this.wedgedUntil) {
+			throw new RendererUnresponsiveError();
+		}
+		try {
+			const result = await fn();
+			this.wedgedUntil = 0; // a successful op means the renderer is alive
+			return result;
+		} catch (err) {
+			// A command timeout on a renderer op means the main thread is blocked.
+			if (err instanceof Error && err.message.startsWith('CDP timeout')) {
+				this.wedgedUntil = Date.now() + RENDERER_WEDGE_TTL_MS;
+				throw new RendererUnresponsiveError();
+			}
+			throw err;
+		}
+	}
+
+	/**
 	 * Send a CDP command and wait for response.
 	 * @param method CDP method name
 	 * @param params Method parameters
-	 * @param timeout Timeout in ms (default: 30000)
+	 * @param timeout Timeout in ms (default: DEFAULT_SEND_TIMEOUT_MS)
 	 */
 	async send(
 		method: string,
 		params: Record<string, unknown> = {},
-		timeout = 30000
+		timeout = DEFAULT_SEND_TIMEOUT_MS
 	): Promise<unknown> {
 		await this.ensureConnected();
 
@@ -394,6 +436,9 @@ export class CdpClient {
 	 * Navigate to a URL.
 	 */
 	async navigate(url: string): Promise<void> {
+		// A navigation discards the current (possibly wedged) document, so give the
+		// renderer a clean slate — clear the circuit breaker.
+		this.wedgedUntil = 0;
 		await this.send('Page.navigate', { url });
 		// Wait for load event
 		await this.send('Page.enable');
@@ -434,11 +479,13 @@ export class CdpClient {
 	 * Get current URL.
 	 */
 	async getUrl(): Promise<string> {
-		const result = await this.send('Runtime.evaluate', {
-			expression: 'window.location.href',
-			returnByValue: true
-		}) as { result?: { value?: string } };
-		return result?.result?.value || '';
+		return this.rendererOp(async () => {
+			const result = await this.send('Runtime.evaluate', {
+				expression: 'window.location.href',
+				returnByValue: true
+			}) as { result?: { value?: string } };
+			return result?.result?.value || '';
+		});
 	}
 
 	/**
@@ -447,6 +494,12 @@ export class CdpClient {
 	 * Includes retry logic for transient failures (e.g., connection issues).
 	 */
 	async screenshot(options?: { format?: 'png' | 'jpeg'; quality?: number }): Promise<string> {
+		// Circuit breaker: if the renderer was just seen wedged, don't burn the
+		// full timeout again — fail fast with the recoverable error.
+		if (Date.now() < this.wedgedUntil) {
+			throw new RendererUnresponsiveError();
+		}
+
 		const maxRetries = 3;
 		let lastError: Error | null = null;
 
@@ -460,6 +513,7 @@ export class CdpClient {
 					},
 					SCREENSHOT_TIMEOUT_MS
 				)) as { data: string };
+				this.wedgedUntil = 0; // a successful capture means the renderer is alive
 				return result.data;
 			} catch (err) {
 				lastError = err instanceof Error ? err : new Error(String(err));
@@ -469,8 +523,9 @@ export class CdpClient {
 				if (attempt < maxRetries) {
 					// A capture timeout usually means the renderer can't produce a frame.
 					// If its main thread is wedged (page JS blocking it), retrying won't
-					// help — bail immediately with a clear, actionable error.
+					// help — trip the breaker and bail with a clear, actionable error.
 					if (!(await this.isRendererResponsive())) {
+						this.wedgedUntil = Date.now() + RENDERER_WEDGE_TTL_MS;
 						throw new RendererUnresponsiveError();
 					}
 					// Otherwise the failure may be transient (e.g. reconnect) — retry.
@@ -546,6 +601,21 @@ export class CdpClient {
 		contentTop: number;
 		contentLeft: number;
 	}> {
+		return this.rendererOp(() => this.getContentViewportInfoRaw());
+	}
+
+	private async getContentViewportInfoRaw(): Promise<{
+		screenX: number;
+		screenY: number;
+		outerWidth: number;
+		outerHeight: number;
+		innerWidth: number;
+		innerHeight: number;
+		devicePixelRatio: number;
+		chromeBarHeight: number;
+		contentTop: number;
+		contentLeft: number;
+	}> {
 		const result = await this.send('Runtime.evaluate', {
 			expression: `({
 				screenX: window.screenX,
@@ -592,16 +662,18 @@ export class CdpClient {
 	 * Scroll the page.
 	 */
 	async scroll(deltaX: number, deltaY: number, x?: number, y?: number): Promise<void> {
-		const metrics = await this.getLayoutMetrics();
-		const scrollX = x ?? metrics.layoutViewport.clientWidth / 2;
-		const scrollY = y ?? metrics.layoutViewport.clientHeight / 2;
+		return this.rendererOp(async () => {
+			const metrics = await this.getLayoutMetrics();
+			const scrollX = x ?? metrics.layoutViewport.clientWidth / 2;
+			const scrollY = y ?? metrics.layoutViewport.clientHeight / 2;
 
-		await this.send('Input.dispatchMouseEvent', {
-			type: 'mouseWheel',
-			x: scrollX,
-			y: scrollY,
-			deltaX,
-			deltaY
+			await this.send('Input.dispatchMouseEvent', {
+				type: 'mouseWheel',
+				x: scrollX,
+				y: scrollY,
+				deltaX,
+				deltaY
+			});
 		});
 	}
 
@@ -610,10 +682,12 @@ export class CdpClient {
 	 * Triggers hover effects on elements.
 	 */
 	async cdpMove(x: number, y: number): Promise<void> {
-		await this.send('Input.dispatchMouseEvent', {
-			type: 'mouseMoved',
-			x,
-			y
+		return this.rendererOp(async () => {
+			await this.send('Input.dispatchMouseEvent', {
+				type: 'mouseMoved',
+				x,
+				y
+			});
 		});
 	}
 
@@ -622,19 +696,21 @@ export class CdpClient {
 	 * Use this as fallback when OS-level click fails.
 	 */
 	async cdpClick(x: number, y: number): Promise<void> {
-		await this.send('Input.dispatchMouseEvent', {
-			type: 'mousePressed',
-			x,
-			y,
-			button: 'left',
-			clickCount: 1
-		});
-		await this.send('Input.dispatchMouseEvent', {
-			type: 'mouseReleased',
-			x,
-			y,
-			button: 'left',
-			clickCount: 1
+		return this.rendererOp(async () => {
+			await this.send('Input.dispatchMouseEvent', {
+				type: 'mousePressed',
+				x,
+				y,
+				button: 'left',
+				clickCount: 1
+			});
+			await this.send('Input.dispatchMouseEvent', {
+				type: 'mouseReleased',
+				x,
+				y,
+				button: 'left',
+				clickCount: 1
+			});
 		});
 	}
 
@@ -643,22 +719,27 @@ export class CdpClient {
 	 * Use this as fallback when OS-level typing fails.
 	 */
 	async cdpType(text: string, delay = 50): Promise<void> {
-		for (const char of text) {
-			await this.send('Input.dispatchKeyEvent', {
-				type: 'keyDown',
-				text: char,
-				key: char,
-				code: ''
-			});
-			await this.send('Input.dispatchKeyEvent', {
-				type: 'keyUp',
-				key: char,
-				code: ''
-			});
-			if (delay > 0) {
-				await new Promise((r) => setTimeout(r, delay));
+		// Wrap the whole loop: on a wedged renderer the first keystroke times out
+		// and trips the breaker, so we abort instead of waiting the full timeout on
+		// every remaining character.
+		return this.rendererOp(async () => {
+			for (const char of text) {
+				await this.send('Input.dispatchKeyEvent', {
+					type: 'keyDown',
+					text: char,
+					key: char,
+					code: ''
+				});
+				await this.send('Input.dispatchKeyEvent', {
+					type: 'keyUp',
+					key: char,
+					code: ''
+				});
+				if (delay > 0) {
+					await new Promise((r) => setTimeout(r, delay));
+				}
 			}
-		}
+		});
 	}
 
 	/**
