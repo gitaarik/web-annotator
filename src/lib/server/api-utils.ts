@@ -19,6 +19,21 @@ export function badRequest(message: string) {
 }
 
 /**
+ * Error response for a browser operation. If the renderer is wedged, returns a
+ * recoverable 503 carrying a code so the client can prompt a reload instead of
+ * treating it as a generic failure.
+ */
+export function browserErrorResponse(error: unknown, fallback: string) {
+	if (error instanceof Error && (error as { code?: string }).code === 'RENDERER_UNRESPONSIVE') {
+		return json(
+			{ error: getErrorMessage(error, fallback), code: 'RENDERER_UNRESPONSIVE', recoverable: true },
+			{ status: 503 }
+		);
+	}
+	return errorResponse(getErrorMessage(error, fallback));
+}
+
+/**
  * Creates a 404 Not Found response.
  */
 export function notFound(message: string = 'Not found') {

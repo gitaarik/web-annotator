@@ -97,6 +97,22 @@ class BrowserState {
 // Singleton instance for this server process
 const state = new BrowserState();
 
+export const RENDERER_UNRESPONSIVE_CODE = 'RENDERER_UNRESPONSIVE';
+
+/**
+ * Thrown when browser-service reports the page's renderer is wedged (a blocked
+ * main thread — e.g. an unhandled dialog or a runaway script). Distinct from a
+ * generic failure so callers can prompt the user to reload rather than retry.
+ */
+export class RendererUnresponsiveError extends Error {
+	readonly code = RENDERER_UNRESPONSIVE_CODE;
+	readonly recoverable = true;
+	constructor(message = 'Page is unresponsive (renderer main thread blocked)') {
+		super(message);
+		this.name = 'RendererUnresponsiveError';
+	}
+}
+
 /**
  * Call browser-service API.
  */
@@ -118,6 +134,9 @@ async function browserApi<T>(
 	const data = await res.json();
 
 	if (!res.ok) {
+		if (data?.code === RENDERER_UNRESPONSIVE_CODE) {
+			throw new RendererUnresponsiveError(data.error);
+		}
 		throw new Error(data.error || `browser-service error: ${res.status}`);
 	}
 
@@ -192,7 +211,21 @@ export async function createTab(
 	} else if (!launchResult.isNew) {
 		// Reconnecting to an existing Chrome: don't navigate — attach to whatever
 		// the browser is currently showing so a page reload continues the session.
-		currentUrl = await fetchUrl(sessionId);
+		try {
+			currentUrl = await fetchUrl(sessionId);
+		} catch (err) {
+			// The live page/CDP connection is unhealthy (e.g. a wedged renderer).
+			// Recover by reloading the URL rather than leaving the caller hanging.
+			console.warn('[browser] Reconnect attach failed, reloading page:', err);
+			if (url) {
+				const navResult = await browserApi<{ success: boolean; url: string }>(
+					'POST',
+					`/sessions/${sessionId}/navigate`,
+					{ url }
+				);
+				currentUrl = navResult.url;
+			}
+		}
 	}
 
 	// Track locally

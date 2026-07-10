@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { refreshScreenshot, getViewport, getCurrentUrl, getActiveTabId } from '$lib/server/browser';
-import { badRequest, errorResponse, getServerErrorMessage } from '$lib/server/api-utils';
+import { badRequest, browserErrorResponse } from '$lib/server/api-utils';
 
 /**
  * GET: Lightweight endpoint to check current browser URL (for polling)
@@ -36,6 +36,6 @@ export const POST: RequestHandler = async ({ params, request }) => {
 
 		return json({ screenshotPath, viewport, tabId, currentUrl });
 	} catch (error) {
-		return errorResponse(getServerErrorMessage(error, 'Failed to refresh screenshot'));
+		return browserErrorResponse(error, 'Failed to refresh screenshot');
 	}
 };

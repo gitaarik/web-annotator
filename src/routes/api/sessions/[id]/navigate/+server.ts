@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { navigateAndScreenshot, getViewport, getCurrentUrl } from '$lib/server/browser';
-import { badRequest, errorResponse, getServerErrorMessage } from '$lib/server/api-utils';
+import { badRequest, browserErrorResponse } from '$lib/server/api-utils';
 
 /**
  * POST: Navigate directly to a URL and return screenshot
@@ -24,6 +24,6 @@ export const POST: RequestHandler = async ({ params, request }) => {
 
 		return json({ screenshotPath, viewport, tabId, currentUrl });
 	} catch (error) {
-		return errorResponse(getServerErrorMessage(error, 'Failed to navigate'));
+		return browserErrorResponse(error, 'Failed to navigate');
 	}
 };

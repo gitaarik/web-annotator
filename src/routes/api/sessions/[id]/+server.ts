@@ -2,7 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getSession, deleteSession } from '$lib/server/storage';
 import { createTab, getViewport, refreshScreenshot } from '$lib/server/browser';
-import { notFound, badRequest, errorResponse, getServerErrorMessage } from '$lib/server/api-utils';
+import { notFound, badRequest, browserErrorResponse } from '$lib/server/api-utils';
 
 export const GET: RequestHandler = async ({ params }) => {
 	const session = await getSession(params.id);
@@ -57,7 +57,7 @@ export const POST: RequestHandler = async ({ params }) => {
 			tabs: session.tabs
 		});
 	} catch (error) {
-		return errorResponse(getServerErrorMessage(error, 'Failed to resume session'));
+		return browserErrorResponse(error, 'Failed to resume session');
 	}
 };
 

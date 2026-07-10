@@ -14,7 +14,7 @@ import {
 	type ActionResult
 } from '$lib/server/browser';
 import { addAction, getSession, addTab, setActiveTab, closeTabInSession } from '$lib/server/storage';
-import { badRequest, notFound, errorResponse, getServerErrorMessage } from '$lib/server/api-utils';
+import { badRequest, notFound, browserErrorResponse } from '$lib/server/api-utils';
 import type { Action, AnnotationSession, Tab } from '$lib/types';
 
 interface ActionContext {
@@ -308,6 +308,6 @@ export const POST: RequestHandler = async ({ request }) => {
 			newTabId: result.newTabId
 		});
 	} catch (error) {
-		return errorResponse(getServerErrorMessage(error, 'Failed to execute action'));
+		return browserErrorResponse(error, 'Failed to execute action');
 	}
 };

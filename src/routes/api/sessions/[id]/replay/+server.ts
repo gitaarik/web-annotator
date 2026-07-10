@@ -2,7 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getSession, updateAction } from '$lib/server/storage';
 import { replaySingleAction, getViewport } from '$lib/server/browser';
-import { badRequest, notFound, errorResponse, getServerErrorMessage } from '$lib/server/api-utils';
+import { badRequest, notFound, browserErrorResponse } from '$lib/server/api-utils';
 
 export const POST: RequestHandler = async ({ params, request }) => {
 	let body: { actionIndex?: number; tabId?: string };
@@ -57,6 +57,6 @@ export const POST: RequestHandler = async ({ params, request }) => {
 			redirects: result.redirects
 		});
 	} catch (error) {
-		return errorResponse(getServerErrorMessage(error, 'Failed to replay action'));
+		return browserErrorResponse(error, 'Failed to replay action');
 	}
 };

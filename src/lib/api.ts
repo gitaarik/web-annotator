@@ -7,7 +7,8 @@ export { getErrorMessage } from './utils/error';
 export class ApiError extends Error {
 	constructor(
 		message: string,
-		public status: number
+		public status: number,
+		public code?: string
 	) {
 		super(message);
 		this.name = 'ApiError';
@@ -52,8 +53,12 @@ export async function apiRequest<T>(
 	}
 
 	if (!response.ok) {
-		const errorData = data as { error?: string };
-		throw new ApiError(errorData.error || `Request failed with status ${response.status}`, response.status);
+		const errorData = data as { error?: string; code?: string };
+		throw new ApiError(
+			errorData.error || `Request failed with status ${response.status}`,
+			response.status,
+			errorData.code
+		);
 	}
 
 	return data as T;

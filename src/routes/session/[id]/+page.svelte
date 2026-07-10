@@ -7,7 +7,7 @@
 	import SessionHistory from '$lib/components/SessionHistory.svelte';
 	import TabBar from '$lib/components/TabBar.svelte';
 	import { type Action, type HoverInfo, type Tab, formatAction } from '$lib/types';
-	import { apiRequest, getErrorMessage } from '$lib/api';
+	import { apiRequest, getErrorMessage, ApiError } from '$lib/api';
 
 	let { data } = $props();
 
@@ -42,6 +42,9 @@
 	let navigatingIndex = $state<number | null>(null);
 
 	let error = $state<string | null>(null);
+	// Set when the browser renderer is wedged (blocked main thread). Shows a
+	// reload prompt instead of silently retrying screenshots forever.
+	let browserUnresponsive = $state(false);
 	let replayedUpTo = $state(-1);
 	// Gate playhead persistence until the initial position is restored on mount.
 	let positionSynced = $state(false);
@@ -54,6 +57,10 @@
 	let showLoadingIndicator = $state(false);
 	let hideIndicatorTimeout = $state<ReturnType<typeof setTimeout> | null>(null);
 	let lateUpdate = $state(false);
+	// Ensures the "Updated" flash fires only once per polling cycle. Screenshot
+	// paths are timestamped (always unique), so without this guard every 300ms
+	// poll would re-arm the flash and make it flicker.
+	let lateUpdateShown = $state(false);
 
 	// Action queue for when user starts next action before previous completes
 	let pendingAction = $state<(() => Promise<void>) | null>(null);
@@ -80,6 +87,22 @@
 		return `${src}${separator}v=${screenshotVersion}`;
 	}
 
+	// Route a caught error: a wedged renderer shows the reload prompt; anything
+	// else is a normal error message.
+	function reportError(e: unknown) {
+		if (e instanceof ApiError && e.code === 'RENDERER_UNRESPONSIVE') {
+			browserUnresponsive = true;
+		} else {
+			error = getErrorMessage(e);
+		}
+	}
+
+	// Recover a wedged renderer by reloading the page: reconnect re-attaches, and
+	// if the live page is still unhealthy the reconnect fallback reloads it.
+	function recoverBrowser() {
+		window.location.reload();
+	}
+
 	async function pollScreenshot() {
 		if (!session.id || !tabId) return;
 		try {
@@ -89,6 +112,12 @@
 				body: JSON.stringify({ tabId })
 			});
 			const data = await response.json();
+			if (response.status === 503 && data?.code === 'RENDERER_UNRESPONSIVE') {
+				// Renderer is wedged — stop polling and prompt a reload.
+				browserUnresponsive = true;
+				stopScreenshotPolling();
+				return;
+			}
 			if (data.screenshotPath) {
 				const previousPath = screenshotPath;
 				screenshotPath = data.screenshotPath;
@@ -96,8 +125,15 @@
 				// Update cache-busting version when screenshot changes
 				screenshotVersion = Date.now();
 
-				// If indicator was hidden and screenshot changed, show late update flash
-				if (!showLoadingIndicator && actionLoading && previousPath !== data.screenshotPath) {
+				// If the spinner already hid but a screenshot lands late, flash "Updated"
+				// once per cycle (paths are always unique, so guard against re-firing).
+				if (
+					!showLoadingIndicator &&
+					actionLoading &&
+					!lateUpdateShown &&
+					previousPath !== data.screenshotPath
+				) {
+					lateUpdateShown = true;
 					lateUpdate = true;
 					setTimeout(() => (lateUpdate = false), 800);
 				}
@@ -110,6 +146,7 @@
 	function startScreenshotPolling() {
 		if (pollingInterval) return;
 		showLoadingIndicator = true;
+		lateUpdateShown = false;
 
 		// Hide indicator after 1 second (polling continues in background)
 		// But keep showing if there's a queued action
@@ -205,7 +242,7 @@
 			// at the beginning (-1).
 			replayedUpTo = response.isNew ? -1 : response.replayPosition;
 		} catch (e) {
-			error = getErrorMessage(e);
+			reportError(e);
 		} finally {
 			browserLoading = false;
 			// Enable playhead persistence only after the initial value is restored,
@@ -263,7 +300,7 @@
 		} catch (e) {
 			// Revert on failure
 			replayedUpTo = previousReplayedUpTo;
-			error = getErrorMessage(e);
+			reportError(e);
 		} finally {
 			stopScreenshotPolling();
 			replayLoading = false;
@@ -695,7 +732,7 @@
 			clickCoordinates = null;
 			typeText = '';
 		} catch (e) {
-			error = getErrorMessage(e);
+			reportError(e);
 		} finally {
 			stopScreenshotPolling();
 			actionLoading = false;
@@ -887,7 +924,17 @@
 
 			<div class="main-content">
 				<div class="screenshot-section">
-					{#if browserLoading}
+					{#if browserUnresponsive}
+						<div class="screenshot-placeholder">
+							<div class="unresponsive-content">
+								<p class="unresponsive-title">Browser became unresponsive</p>
+								<p class="unresponsive-text">
+									A dialog or script froze the page. Reload to recover the session.
+								</p>
+								<button class="reload-btn" onclick={recoverBrowser}>Reload</button>
+							</div>
+						</div>
+					{:else if browserLoading}
 						<div class="screenshot-placeholder">
 							<div class="loading-content">
 								<span class="spinner"></span>
@@ -1244,6 +1291,43 @@
 		align-items: center;
 		gap: var(--space-md);
 		color: var(--color-text-muted);
+	}
+
+	.unresponsive-content {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: var(--space-sm);
+		text-align: center;
+		padding: var(--space-lg);
+		max-width: 32rem;
+	}
+
+	.unresponsive-title {
+		margin: 0;
+		font-weight: 600;
+		color: var(--color-text-secondary);
+	}
+
+	.unresponsive-text {
+		margin: 0;
+		font-size: 0.9rem;
+		color: var(--color-text-muted);
+	}
+
+	.reload-btn {
+		margin-top: var(--space-sm);
+		padding: var(--space-xs) var(--space-lg);
+		background: var(--color-primary);
+		color: white;
+		border: none;
+		border-radius: var(--radius-md);
+		font-weight: 600;
+		cursor: pointer;
+	}
+
+	.reload-btn:hover {
+		background: var(--color-primary-hover, var(--color-primary));
 	}
 
 	.spinner {

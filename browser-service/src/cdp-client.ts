@@ -32,6 +32,14 @@ const SCREENSHOT_TIMEOUT_MS = 8000;
 const NAVIGATE_LOAD_TIMEOUT_MS = 30000;
 
 /**
+ * Timeout for opening the page WebSocket. Without this a stale page target that
+ * accepts the socket but never fires 'open'/'error' would leave connect()
+ * pending forever, hanging every request that waits on it (and the UI on
+ * "Initializing browser..."). 10s is generous for a local Chrome.
+ */
+const CONNECT_TIMEOUT_MS = 10000;
+
+/**
  * Thrown when the renderer's main thread is blocked (e.g. the page's own
  * JavaScript is stuck in a synchronous wait), so it can't produce a frame or
  * answer CDP. Callers can distinguish this from transient failures and prompt
@@ -107,8 +115,26 @@ export class CdpClient {
 		return new Promise((resolve, reject) => {
 			this.ws = new WebSocket(wsUrl);
 
+			// Fail fast if the socket never opens, so callers can't hang forever.
+			let settled = false;
+			const connectTimer = setTimeout(() => {
+				if (settled) return;
+				settled = true;
+				this.ws?.terminate();
+				this.ws = null;
+				this.pageWsUrl = null;
+				reject(new Error('CDP connect timeout'));
+			}, CONNECT_TIMEOUT_MS);
+
 			this.ws.on('open', () => {
+				if (settled) return;
+				settled = true;
+				clearTimeout(connectTimer);
 				console.log('[CDP] Connected to page');
+				// Enable Page events so we receive (and can dismiss) JavaScript
+				// dialogs. An unhandled dialog blocks the renderer's main thread,
+				// which stalls screenshots and every other CDP call.
+				this.send('Page.enable').catch(() => {});
 				resolve();
 			});
 
@@ -125,6 +151,8 @@ export class CdpClient {
 								pending.resolve(msg.result);
 							}
 						}
+					} else if (msg.method) {
+						this.handleEvent(msg.method, msg.params);
 					}
 				} catch {
 					// Ignore parse errors
@@ -134,6 +162,9 @@ export class CdpClient {
 			this.ws.on('error', (err) => {
 				console.error('[CDP] WebSocket error:', err.message);
 				this.rejectAllPending(new Error(`WebSocket error: ${err.message}`));
+				if (settled) return;
+				settled = true;
+				clearTimeout(connectTimer);
 				reject(err);
 			});
 
@@ -142,8 +173,30 @@ export class CdpClient {
 				this.rejectAllPending(new Error('WebSocket connection closed'));
 				this.ws = null;
 				this.pageWsUrl = null;
+				// If the socket closed before it ever opened, fail the connect.
+				if (settled) return;
+				settled = true;
+				clearTimeout(connectTimer);
+				reject(new Error('WebSocket closed before open'));
 			});
 		});
+	}
+
+	/**
+	 * Handle unsolicited CDP events (messages without an id).
+	 */
+	private handleEvent(method: string, params?: Record<string, unknown>): void {
+		if (method === 'Page.javascriptDialogOpening') {
+			// A JavaScript dialog (alert/confirm/prompt/beforeunload) blocks the
+			// renderer's main thread until dismissed. Auto-handle it so it can't
+			// freeze the page: proceed through beforeunload prompts (the user was
+			// navigating), and dismiss everything else without taking affirmative
+			// action.
+			const type = params?.type as string | undefined;
+			const accept = type === 'beforeunload';
+			console.log(`[CDP] Auto-handling JS dialog (type=${type}, accept=${accept})`);
+			this.send('Page.handleJavaScriptDialog', { accept }).catch(() => {});
+		}
 	}
 
 	/**
