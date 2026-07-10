@@ -19,7 +19,7 @@
 		"test": "vitest",
 		"test:run": "vitest run",
 		"docker:build": "docker compose build",
-		"docker:up": "docker compose up -d && npm run dev",
+		"docker:up": "docker compose up -d",
 		"docker:down": "docker compose down",
 		"docker:restart": "docker compose down && docker compose build && docker compose up -d",
 		"docker:logs": "docker compose logs -f",

@@ -11,12 +11,16 @@ services:
     volumes:
       # Persist Chrome user data (cookies, login state) between runs
       - chrome-data:/home/appuser/.browser-service
+      # Bind-mount source for hot reload; node_modules stays from the image build.
+      - ./browser-service/src:/app/src
     environment:
       - DISPLAY=:99
       - HOST=0.0.0.0
       - PORT=3001
       - BROWSER_VIEWPORT_WIDTH=1280
       - BROWSER_VIEWPORT_HEIGHT=890
+      # Run `tsx watch` so source edits reload the server (see docker-entrypoint.sh).
+      - SERVER_CMD=dev
     # Needed for Chromium shared memory
     shm_size: '2gb'
     healthcheck:
@@ -26,5 +30,31 @@ services:
       retries: 3
       start_period: 10s
 
+  # SvelteKit web app (Vite dev server with hot reload)
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    volumes:
+      # Bind-mount source for hot reload; node_modules stays from the image build.
+      - ./src:/app/src
+      # Runtime-written dirs use named volumes so the container's `webapp` user
+      # owns them (avoids host UID mismatch / permission errors). Data persists
+      # across runs; inspect via `docker compose exec web ls /app/data/sessions`.
+      - sessions:/app/data
+      - screenshots:/app/static/screenshots
+    environment:
+      - HOST=0.0.0.0
+      - PORT=5173
+      # Reach the browser service by its compose hostname.
+      - BROWSER_SERVICE_URL=http://browser-service:3001
+    depends_on:
+      browser-service:
+        condition: service_healthy
+
 volumes:
   chrome-data:
+  sessions:
+  screenshots:

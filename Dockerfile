@@ -1,45 +1,36 @@
-# web-annotator Docker image
-# SvelteKit app for recording and annotating browser sessions
+# web-annotator dev image
+# SvelteKit app for recording and annotating browser sessions.
+# Runs `vite dev` with the host's source bind-mounted for hot reload
+# (see the `web` service in docker-compose.yml).
 
 FROM node:22-bookworm-slim
 
 # Create non-root user
 RUN useradd -m -s /bin/bash webapp
 
-# Create app directory
 WORKDIR /app
 
-# Copy package files
+# Install dependencies first for better layer caching.
+# No lockfile is committed, and npm workspaces needs the workspace
+# package.json present to resolve, so copy it before installing.
 COPY package.json ./
-COPY package-lock.json ./
-
-# Copy browser-service package.json for workspace resolution
 COPY browser-service/package.json ./browser-service/
+RUN npm install
 
-# Install dependencies
-RUN npm ci
+# Copy source. In dev this is overridden by bind mounts (see compose),
+# but keeps the image runnable on its own.
+COPY . .
 
-# Copy source code (excluding browser-service which runs separately)
-COPY src ./src
-COPY static ./static
-COPY svelte.config.js ./
-COPY tsconfig.json ./
-COPY vite.config.ts ./
-
-# Create data directory for sessions
+# Sessions are written here; create it before the bind mount so it exists.
 RUN mkdir -p /app/data/sessions && chown -R webapp:webapp /app
 
-# Switch to non-root user
 USER webapp
 
-# Environment variables
 ENV HOST=0.0.0.0
 ENV PORT=5173
-# Connect to browser-service container
-ENV BROWSER_SERVICE_URL=http://browser-service:3001
 
-# Expose dev server port
 EXPOSE 5173
 
-# Run dev server (use build + preview for production)
+# Dev server. Connects to the browser-service container via BROWSER_SERVICE_URL
+# (set in docker-compose.yml).
 CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]

@@ -41,6 +41,8 @@ cleanup() {
 }
 trap cleanup SIGTERM SIGINT
 
-# Start browser-service server
-echo "[entrypoint] Starting browser-service server..."
-exec npm start
+# Start browser-service server.
+# SERVER_CMD picks the npm script: "start" (default, tsx) or "dev"
+# (tsx watch) for hot reload when the source is bind-mounted (see docker-compose.yml).
+echo "[entrypoint] Starting browser-service server (npm run ${SERVER_CMD:-start})..."
+exec npm run "${SERVER_CMD:-start}"

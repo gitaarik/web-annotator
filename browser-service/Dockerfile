@@ -30,6 +30,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Clean up apt cache
     && rm -rf /var/lib/apt/lists/*
 
+# Debian's chromium wrapper force-enables --enable-gpu-rasterization via
+# /etc/chromium.d/default-flags. Under Xvfb (no real GPU) that crashes the GPU
+# process, which makes Page.captureScreenshot hang. Strip it so Chrome falls
+# back to its stable software compositor (SwiftShader).
+RUN sed -i '/enable-gpu-rasterization/d' /etc/chromium.d/default-flags
+
 # Create non-root user for security
 RUN useradd -m -s /bin/bash appuser
 
