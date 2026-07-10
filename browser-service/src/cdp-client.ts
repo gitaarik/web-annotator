@@ -17,6 +17,35 @@ interface CdpMessage {
 }
 
 /**
+ * Per-attempt timeout for screenshots. Shorter than the default 30s `send`
+ * timeout so a wedged renderer (page JS blocking the main thread) surfaces in
+ * seconds instead of ~90s (3 x 30s).
+ */
+const SCREENSHOT_TIMEOUT_MS = 8000;
+
+/**
+ * Overall deadline for waiting on `document.readyState` to reach 'complete'
+ * after a navigation. Bounds the polling loop so a page that never finishes
+ * loading (or a renderer that can't answer on reconnect) can't hang the
+ * request forever.
+ */
+const NAVIGATE_LOAD_TIMEOUT_MS = 30000;
+
+/**
+ * Thrown when the renderer's main thread is blocked (e.g. the page's own
+ * JavaScript is stuck in a synchronous wait), so it can't produce a frame or
+ * answer CDP. Callers can distinguish this from transient failures and prompt
+ * the user to reload rather than retrying pointlessly.
+ */
+export class RendererUnresponsiveError extends Error {
+	readonly code = 'RENDERER_UNRESPONSIVE';
+	constructor(message = 'Page is unresponsive (renderer main thread blocked)') {
+		super(message);
+		this.name = 'RendererUnresponsiveError';
+	}
+}
+
+/**
  * CDP client for a single Chrome session.
  */
 export class CdpClient {
@@ -315,8 +344,20 @@ export class CdpClient {
 		await this.send('Page.navigate', { url });
 		// Wait for load event
 		await this.send('Page.enable');
+		// Poll readyState until 'complete', but bound the wait with an overall
+		// deadline. Some pages (streaming, long-polling, or a wedged renderer on
+		// reconnect) never reach 'complete'; without a deadline this loop would
+		// retry forever and the HTTP request would hang indefinitely, leaving the
+		// UI stuck on "Initializing browser...". A page that hasn't finished is
+		// still usable and screenshottable, so we resolve rather than reject.
+		const deadline = Date.now() + NAVIGATE_LOAD_TIMEOUT_MS;
 		await new Promise<void>((resolve) => {
 			const checkLoad = async () => {
+				if (Date.now() >= deadline) {
+					console.log('[CDP] Navigate load wait timed out; proceeding anyway');
+					resolve();
+					return;
+				}
 				try {
 					const result = await this.send('Runtime.evaluate', {
 						expression: 'document.readyState',
@@ -358,10 +399,14 @@ export class CdpClient {
 
 		for (let attempt = 1; attempt <= maxRetries; attempt++) {
 			try {
-				const result = (await this.send('Page.captureScreenshot', {
-					format: options?.format || 'png',
-					quality: options?.quality
-				})) as { data: string };
+				const result = (await this.send(
+					'Page.captureScreenshot',
+					{
+						format: options?.format || 'png',
+						quality: options?.quality
+					},
+					SCREENSHOT_TIMEOUT_MS
+				)) as { data: string };
 				return result.data;
 			} catch (err) {
 				lastError = err instanceof Error ? err : new Error(String(err));
@@ -369,13 +414,33 @@ export class CdpClient {
 					`[CDP] Screenshot attempt ${attempt}/${maxRetries} failed: ${lastError.message}`
 				);
 				if (attempt < maxRetries) {
-					// Wait briefly then retry (connection may need to reconnect)
+					// A capture timeout usually means the renderer can't produce a frame.
+					// If its main thread is wedged (page JS blocking it), retrying won't
+					// help — bail immediately with a clear, actionable error.
+					if (!(await this.isRendererResponsive())) {
+						throw new RendererUnresponsiveError();
+					}
+					// Otherwise the failure may be transient (e.g. reconnect) — retry.
 					await new Promise((resolve) => setTimeout(resolve, 300));
 				}
 			}
 		}
 
 		throw lastError || new Error('Screenshot failed after retries');
+	}
+
+	/**
+	 * Lightweight liveness probe: evaluates a trivial expression to check whether
+	 * the renderer's main thread is servicing requests. Returns false if it times
+	 * out — i.e. the page's JavaScript has the main thread blocked.
+	 */
+	async isRendererResponsive(timeoutMs = 3000): Promise<boolean> {
+		try {
+			await this.send('Runtime.evaluate', { expression: '1', returnByValue: true }, timeoutMs);
+			return true;
+		} catch {
+			return false;
+		}
 	}
 
 	/**

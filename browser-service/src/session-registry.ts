@@ -17,6 +17,13 @@ export interface SessionState {
 	createdAt: Date;
 	lastActivity: Date;
 	chrome: ChromeSession;
+	/**
+	 * Playhead position (index of the last replayed action) for the annotator UI.
+	 * Lives exactly as long as this Chrome instance: reconnecting a page restores
+	 * it, but a fresh Chrome (session recreated) starts at -1. This is what makes
+	 * the UI's history reset only when the browser actually restarts.
+	 */
+	replayPosition: number;
 }
 
 const sessions = new Map<string, SessionState>();
@@ -62,7 +69,8 @@ export async function getOrCreateSession(
 		cdpPort: chrome.port,
 		createdAt: new Date(),
 		lastActivity: new Date(),
-		chrome
+		chrome,
+		replayPosition: -1
 	};
 
 	sessions.set(sessionId, session);

@@ -168,27 +168,31 @@ async function captureScreenshot(sessionId: string, filename: string): Promise<s
 export async function createTab(
 	url?: string,
 	browserSessionId?: string
-): Promise<{ tabId: string; url: string }> {
+): Promise<{ tabId: string; url: string; isNew: boolean; replayPosition: number }> {
 	// Use provided browserSessionId or generate a new one
 	const tabId = state.generateTabId();
 	const sessionId = browserSessionId || tabId;
 
 	// Launch or reconnect to Chrome via browser-service
-	const launchResult = await browserApi<{ success: boolean; isNew: boolean }>(
-		'POST',
-		`/sessions/${sessionId}/launch`,
-		{ url }
-	);
+	const launchResult = await browserApi<{
+		success: boolean;
+		isNew: boolean;
+		replayPosition?: number;
+	}>('POST', `/sessions/${sessionId}/launch`, { url });
 
-	// Always navigate to the URL if provided
 	let currentUrl = url || 'about:blank';
-	if (url) {
+	if (launchResult.isNew && url) {
+		// Fresh Chrome: navigate to the target URL.
 		const navResult = await browserApi<{ success: boolean; url: string }>(
 			'POST',
 			`/sessions/${sessionId}/navigate`,
 			{ url }
 		);
 		currentUrl = navResult.url;
+	} else if (!launchResult.isNew) {
+		// Reconnecting to an existing Chrome: don't navigate — attach to whatever
+		// the browser is currently showing so a page reload continues the session.
+		currentUrl = await fetchUrl(sessionId);
 	}
 
 	// Track locally
@@ -196,7 +200,23 @@ export async function createTab(
 	state.setActiveTabId(tabId);
 	state.setActiveSessionId(sessionId);
 
-	return { tabId, url: currentUrl };
+	return {
+		tabId,
+		url: currentUrl,
+		isNew: launchResult.isNew,
+		replayPosition: launchResult.replayPosition ?? -1
+	};
+}
+
+/**
+ * Persist the annotator playhead for a tab's Chrome session. Survives a page
+ * reload (reconnect) but resets when Chrome is relaunched.
+ */
+export async function setReplayPosition(tabId: string, position: number): Promise<void> {
+	const browserSessionId = getSessionId(tabId);
+	await browserApi<{ success: boolean }>('POST', `/sessions/${browserSessionId}/position`, {
+		position
+	});
 }
 
 /**

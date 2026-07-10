@@ -9,6 +9,14 @@
 	let detailsAction: { index: number; action: Action } | null = $state(null);
 	let actionsListEl: HTMLDivElement | undefined = $state();
 	let prevActionsLength = $state(0);
+	let appendScrollReady = $state(false);
+	let prevIsAddingNew = $state(false);
+	let prevHasPending = $state(false);
+	let prevLoadingIndex = $state<number | null>(null);
+	// Guard so the intent-scroll effect doesn't fire on its first run: at mount
+	// isAddingNew is already true, which would otherwise look like the user just
+	// started adding and scroll the history to the right on page load.
+	let intentScrollReady = $state(false);
 
 	async function copyUrl(url: string) {
 		await copyToClipboard(url);
@@ -161,6 +169,13 @@
 		const wasAdded = currentLength > prevActionsLength;
 		prevActionsLength = currentLength;
 
+		// Skip the first run: the initial list isn't a user-added action, and
+		// treating it as one scrolls the history right on page load.
+		if (!appendScrollReady) {
+			appendScrollReady = true;
+			return;
+		}
+
 		if (wasAdded && actionsListEl) {
 			// Check if user is already near the right edge (within 200px of the end)
 			const scrollRight = actionsListEl.scrollWidth - actionsListEl.scrollLeft - actionsListEl.clientWidth;
@@ -175,6 +190,44 @@
 					});
 				});
 			}
+		}
+	});
+
+	// Scroll to the right edge on explicit user intent: starting a new action or a
+	// pending action appearing. Unlike the append effect above, this ignores scroll
+	// position — the user just acted, so follow the card they created.
+	function scrollToRightEdge() {
+		if (!actionsListEl) return;
+		requestAnimationFrame(() => {
+			actionsListEl?.scrollTo({
+				left: actionsListEl.scrollWidth,
+				behavior: 'smooth'
+			});
+		});
+	}
+
+	$effect(() => {
+		const startedAdding = isAddingNew && !prevIsAddingNew;
+		const hasPending = pendingActionPreview !== null;
+		const pendingAppeared = hasPending && !prevHasPending;
+		// Started executing the last action in the list
+		const startedLoadingLast =
+			loadingIndex !== null &&
+			loadingIndex !== prevLoadingIndex &&
+			loadingIndex === actions.length - 1;
+
+		prevIsAddingNew = isAddingNew;
+		prevHasPending = hasPending;
+		prevLoadingIndex = loadingIndex;
+
+		// Record initial state on the first run without scrolling.
+		if (!intentScrollReady) {
+			intentScrollReady = true;
+			return;
+		}
+
+		if (startedAdding || pendingAppeared || startedLoadingLast) {
+			scrollToRightEdge();
 		}
 	});
 

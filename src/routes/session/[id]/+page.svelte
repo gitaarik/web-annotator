@@ -43,6 +43,8 @@
 
 	let error = $state<string | null>(null);
 	let replayedUpTo = $state(-1);
+	// Gate playhead persistence until the initial position is restored on mount.
+	let positionSynced = $state(false);
 	let hoverInfo = $state<HoverInfo>(null);
 	let editingActionIndex = $state<number | null>(null);
 	let manualEditMode = $state(false);
@@ -162,6 +164,21 @@
 		};
 	});
 
+	// Persist the playhead to the Chrome session whenever it moves, so a page
+	// reload reconnects at the same position. Gated on positionSynced so the
+	// initial default (-1) doesn't overwrite the restored value during mount.
+	$effect(() => {
+		const position = replayedUpTo;
+		if (!positionSynced || !session.id || !tabId) return;
+		fetch(`/api/sessions/${session.id}/position`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ tabId, position })
+		}).catch(() => {
+			// Best-effort; a failed sync just means reload falls back to this position
+		});
+	});
+
 	async function initializeBrowser() {
 		browserLoading = true;
 		error = null;
@@ -173,6 +190,8 @@
 				viewport: { width: number; height: number };
 				tabId: string;
 				tabs?: Tab[];
+				isNew: boolean;
+				replayPosition: number;
 			}>(`/api/sessions/${session.id}`, { method: 'POST' });
 
 			tabId = response.tabId;
@@ -180,10 +199,18 @@
 			screenshotPath = response.screenshotPath;
 			viewport = response.viewport;
 			actions = response.session.actions;
+
+			// On reconnect, restore the playhead persisted with the Chrome session so
+			// history continues where it left off. A freshly launched Chrome starts
+			// at the beginning (-1).
+			replayedUpTo = response.isNew ? -1 : response.replayPosition;
 		} catch (e) {
 			error = getErrorMessage(e);
 		} finally {
 			browserLoading = false;
+			// Enable playhead persistence only after the initial value is restored,
+			// so the sync effect can't clobber the stored position with the default.
+			positionSynced = true;
 		}
 	}
 

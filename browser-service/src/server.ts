@@ -13,7 +13,7 @@ import {
 	listSessions,
 	closeAllSessions
 } from './session-registry.js';
-import { CdpClient } from './cdp-client.js';
+import { CdpClient, RendererUnresponsiveError } from './cdp-client.js';
 import { activateBrowserWindow } from './focus.js';
 import { osClick, osType, osClearInput } from './os-input.js';
 
@@ -92,7 +92,8 @@ app.post('/sessions/:id/launch', async (req, res) => {
 			isNew,
 			sessionId: session.sessionId,
 			chromePid: session.chromePid,
-			cdpPort: session.cdpPort
+			cdpPort: session.cdpPort,
+			replayPosition: session.replayPosition
 		});
 	} catch (err) {
 		console.error('[Server] Launch error:', err);
@@ -101,6 +102,25 @@ app.post('/sessions/:id/launch', async (req, res) => {
 			error: err instanceof Error ? err.message : String(err)
 		});
 	}
+});
+
+// Persist the annotator playhead alongside the Chrome session so it survives a
+// page reload (reconnect) but resets when Chrome is relaunched.
+app.post('/sessions/:id/position', (req, res) => {
+	const session = getSession(req.params.id);
+	if (!session) {
+		res.status(404).json({ error: 'Session not found' });
+		return;
+	}
+
+	const { position } = req.body || {};
+	if (typeof position !== 'number' || !Number.isInteger(position)) {
+		res.status(400).json({ error: 'Integer position required' });
+		return;
+	}
+
+	session.replayPosition = position;
+	res.json({ success: true, replayPosition: session.replayPosition });
 });
 
 app.post('/sessions/:id/close', async (req, res) => {
@@ -386,6 +406,17 @@ app.get('/sessions/:id/screenshot', async (req, res) => {
 			res.json({ data, format, viewport });
 		}
 	} catch (err) {
+		// A wedged renderer (page JS blocking the main thread) can't produce a
+		// frame — surface it distinctly so the client can prompt a reload instead
+		// of treating it as a generic capture error.
+		if (err instanceof RendererUnresponsiveError) {
+			res.status(503).json({
+				error: err.message,
+				code: err.code,
+				recoverable: true
+			});
+			return;
+		}
 		res.status(500).json({
 			error: err instanceof Error ? err.message : String(err)
 		});

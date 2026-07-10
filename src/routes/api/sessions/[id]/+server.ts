@@ -33,8 +33,12 @@ export const POST: RequestHandler = async ({ params }) => {
 		const activeTab = openTabs.find((t) => t.id === session.activeTabId) ?? openTabs[0];
 
 		// Create a new browser tab for the active tab
-		// Pass session.id as browserSessionId so page refresh reconnects to same Chrome
-		const { tabId } = await createTab(activeTab?.url ?? session.url, session.id);
+		// Pass session.id as browserSessionId so page refresh reconnects to same Chrome.
+		// On reconnect createTab attaches to the live page without re-navigating.
+		const { tabId, isNew, replayPosition } = await createTab(
+			activeTab?.url ?? session.url,
+			session.id
+		);
 		const screenshotPath = await refreshScreenshot(tabId, session.id);
 		const viewport = getViewport();
 
@@ -43,6 +47,11 @@ export const POST: RequestHandler = async ({ params }) => {
 			screenshotPath,
 			viewport,
 			tabId,
+			// Whether Chrome was freshly launched (true) or reconnected (false).
+			// On reconnect the frontend restores the persisted playhead instead of
+			// resetting history to the start.
+			isNew,
+			replayPosition,
 			// Note: The browser tabId won't match the stored tabId
 			// The frontend should use the returned tabId for subsequent operations
 			tabs: session.tabs
