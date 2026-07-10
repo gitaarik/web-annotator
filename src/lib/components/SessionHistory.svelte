@@ -10,12 +10,10 @@
 	let actionsListEl: HTMLDivElement | undefined = $state();
 	let prevActionsLength = $state(0);
 	let appendScrollReady = $state(false);
-	let prevIsAddingNew = $state(false);
+	let prevReplayedUpTo = $state(-1);
 	let prevHasPending = $state(false);
-	let prevLoadingIndex = $state<number | null>(null);
-	// Guard so the intent-scroll effect doesn't fire on its first run: at mount
-	// isAddingNew is already true, which would otherwise look like the user just
-	// started adding and scroll the history to the right on page load.
+	// Guard so the playhead-scroll effect doesn't fire on its first run (mount),
+	// which would otherwise scroll the history on page load.
 	let intentScrollReady = $state(false);
 
 	async function copyUrl(url: string) {
@@ -193,9 +191,9 @@
 		}
 	});
 
-	// Scroll to the right edge on explicit user intent: starting a new action or a
-	// pending action appearing. Unlike the append effect above, this ignores scroll
-	// position — the user just acted, so follow the card they created.
+	// Scroll all the way to the right edge (reveals the "Now" / newest card).
+	// Unlike the append effect above, this ignores scroll position — the user
+	// just acted, so follow the card they created.
 	function scrollToRightEdge() {
 		if (!actionsListEl) return;
 		requestAnimationFrame(() => {
@@ -206,19 +204,36 @@
 		});
 	}
 
+	// Scroll just enough to bring a specific action card into view (with a little
+	// breathing room), without jumping to the far edge. No-op if it's already visible.
+	function revealActionCard(index: number) {
+		if (!actionsListEl) return;
+		requestAnimationFrame(() => {
+			const el = actionsListEl?.querySelector(`[data-action-index="${index}"]`);
+			if (!el || !actionsListEl) return;
+			const padding = 16;
+			const contRect = actionsListEl.getBoundingClientRect();
+			const elRect = el.getBoundingClientRect();
+			if (elRect.right > contRect.right) {
+				actionsListEl.scrollBy({ left: elRect.right - contRect.right + padding, behavior: 'smooth' });
+			} else if (elRect.left < contRect.left) {
+				actionsListEl.scrollBy({ left: elRect.left - contRect.left - padding, behavior: 'smooth' });
+			}
+		});
+	}
+
+	// Follow the playhead as actions are executed: reveal the next action as you
+	// step forward, and only jump fully right at the last step (to show "Now") or
+	// while recording a new action. Driven by replayedUpTo rather than the
+	// overloaded isAddingNew flag, which also flips true when a replay finishes.
 	$effect(() => {
-		const startedAdding = isAddingNew && !prevIsAddingNew;
+		const currentReplayed = replayedUpTo;
 		const hasPending = pendingActionPreview !== null;
 		const pendingAppeared = hasPending && !prevHasPending;
-		// Started executing the last action in the list
-		const startedLoadingLast =
-			loadingIndex !== null &&
-			loadingIndex !== prevLoadingIndex &&
-			loadingIndex === actions.length - 1;
+		const replayedChanged = currentReplayed !== prevReplayedUpTo;
 
-		prevIsAddingNew = isAddingNew;
+		prevReplayedUpTo = currentReplayed;
 		prevHasPending = hasPending;
-		prevLoadingIndex = loadingIndex;
 
 		// Record initial state on the first run without scrolling.
 		if (!intentScrollReady) {
@@ -226,8 +241,17 @@
 			return;
 		}
 
-		if (startedAdding || pendingAppeared || startedLoadingLast) {
+		if (pendingAppeared) {
+			// Recording a new action — reveal the pending card at the end.
 			scrollToRightEdge();
+		} else if (replayedChanged) {
+			if (currentReplayed < 0 || currentReplayed >= actions.length - 1) {
+				// Add-new mode, or executing the last step: reveal the "Now" card.
+				scrollToRightEdge();
+			} else {
+				// Executed a step with more to come: bring just the next action into view.
+				revealActionCard(currentReplayed + 1);
+			}
 		}
 	});
 
@@ -261,6 +285,7 @@
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
 				class="action-item"
+				data-action-index={index}
 				class:replayed={isReplayed(index)}
 				class:next-playable={isNextPlayable(index)}
 				class:editing={editingIndex === index}
