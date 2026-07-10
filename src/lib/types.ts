@@ -22,6 +22,43 @@ export interface AnnotationSession {
 	actions: Action[];
 	initialScreenshot: string;
 	finalAnswer?: string;
+	/**
+	 * Popup/overlay dismissals performed by the annotator. Kept separate from
+	 * `actions` because they're incidental to the task, not task steps. The
+	 * captured locator + domain seed future per-site auto-dismissal (Phase 2).
+	 */
+	dismissals?: DismissEvent[];
+}
+
+/**
+ * A robust-ish description of an element, captured at dismiss time so a
+ * dismissal can later be recognized/re-applied on the same site (Phase 2).
+ * Deliberately attribute-based (text/role/aria), not a brittle DOM path.
+ */
+export interface ElementLocator {
+	tag?: string;
+	text?: string;
+	ariaLabel?: string;
+	role?: string;
+	id?: string;
+	classes?: string[];
+}
+
+/**
+ * A manual popup/notification dismissal. Recorded outside the task action
+ * sequence so the annotator can clear obstructions without polluting the steps.
+ */
+export interface DismissEvent {
+	id: string;
+	tabId: string;
+	coordinates: { x: number; y: number };
+	explanation?: string;
+	timestamp: string;
+	url: string;
+	domain: string;
+	locator?: ElementLocator;
+	screenshotBefore: string;
+	screenshotAfter: string;
 }
 
 export interface Action {

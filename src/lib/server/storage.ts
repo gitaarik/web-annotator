@@ -1,6 +1,6 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import type { AnnotationSession, Action, Tab } from '$lib/types';
+import type { AnnotationSession, Action, Tab, DismissEvent } from '$lib/types';
 
 const DATA_DIR = path.join(process.cwd(), 'data', 'sessions');
 
@@ -90,6 +90,33 @@ export async function addAction(
 	if (action.type === 'stop') {
 		session.finalAnswer = action.explanation;
 	}
+
+	await fs.writeFile(getSessionPath(sessionId), JSON.stringify(session, null, 2));
+	return session;
+}
+
+export async function addDismissal(
+	sessionId: string,
+	dismissal: DismissEvent
+): Promise<AnnotationSession | null> {
+	const session = await getSession(sessionId);
+	if (!session) return null;
+
+	session.dismissals = session.dismissals ?? [];
+	session.dismissals.push(dismissal);
+
+	await fs.writeFile(getSessionPath(sessionId), JSON.stringify(session, null, 2));
+	return session;
+}
+
+export async function deleteDismissal(
+	sessionId: string,
+	dismissalId: string
+): Promise<AnnotationSession | null> {
+	const session = await getSession(sessionId);
+	if (!session) return null;
+
+	session.dismissals = (session.dismissals ?? []).filter((d) => d.id !== dismissalId);
 
 	await fs.writeFile(getSessionPath(sessionId), JSON.stringify(session, null, 2));
 	return session;

@@ -1,9 +1,11 @@
 <script lang="ts">
+	type ActionKind = 'click' | 'hover' | 'scroll' | 'type' | 'wait' | 'stop' | 'dismiss';
+
 	interface Props {
-		selectedAction: 'click' | 'hover' | 'scroll' | 'type' | 'wait' | 'stop' | null;
+		selectedAction: ActionKind | null;
 		scrollDirection: 'up' | 'down';
 		typeText: string;
-		onactionchange: (action: 'click' | 'hover' | 'scroll' | 'type' | 'wait' | 'stop') => void;
+		onactionchange: (action: ActionKind) => void;
 		onscrolldirectionchange: (direction: 'up' | 'down') => void;
 		ontextchange: (text: string) => void;
 		isEditing?: boolean;
@@ -136,6 +138,19 @@
 			Stop
 			<span class="action-hint">Finish annotation and provide final answer</span>
 		</label>
+
+		<label class:selected={selectedAction === 'dismiss'} class:dismiss={true}>
+			<input
+				type="radio"
+				name="action"
+				value="dismiss"
+				checked={selectedAction === 'dismiss'}
+				onchange={() => onactionchange('dismiss')}
+			/>
+			<span class="action-icon">&#10006;</span>
+			Dismiss popup
+			<span class="action-hint">Close a cookie/consent/notification popup — not recorded as a step</span>
+		</label>
 	</div>
 </div>
 
@@ -200,6 +215,16 @@
 	label.selected {
 		border-color: var(--color-primary);
 		background: var(--color-primary-light);
+	}
+
+	/* Dismiss is set apart — it's an incidental cleanup, not a task step. */
+	label.dismiss {
+		border-style: dashed;
+	}
+
+	label.dismiss.selected {
+		border-color: var(--color-warning, #f59e0b);
+		background: var(--color-warning-bg, #fef3c7);
 	}
 
 	.action-icon {

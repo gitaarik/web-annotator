@@ -6,7 +6,7 @@
 	import ExplanationInput from '$lib/components/ExplanationInput.svelte';
 	import SessionHistory from '$lib/components/SessionHistory.svelte';
 	import TabBar from '$lib/components/TabBar.svelte';
-	import { type Action, type HoverInfo, type Tab, formatAction } from '$lib/types';
+	import { type Action, type HoverInfo, type Tab, type DismissEvent, formatAction } from '$lib/types';
 	import { apiRequest, getErrorMessage, ApiError } from '$lib/api';
 
 	let { data } = $props();
@@ -23,10 +23,13 @@
 
 	// Action state
 	let actions = $state<Action[]>(session.actions ?? []);
+	let dismissals = $state<DismissEvent[]>(session.dismissals ?? []);
 	let isCompleted = $state(!!session.finalAnswer);
 
 	// Input state
-	let selectedAction = $state<'click' | 'hover' | 'scroll' | 'type' | 'wait' | 'stop' | null>(null);
+	let selectedAction = $state<
+		'click' | 'hover' | 'scroll' | 'type' | 'wait' | 'stop' | 'dismiss' | null
+	>(null);
 	let scrollDirection = $state<'up' | 'down'>('down');
 	let typeText = $state('');
 	let explanation = $state('');
@@ -234,7 +237,7 @@
 
 		try {
 			const response = await apiRequest<{
-				session: { actions: Action[]; tabs?: Tab[] };
+				session: { actions: Action[]; tabs?: Tab[]; dismissals?: DismissEvent[] };
 				screenshotPath: string;
 				viewport: { width: number; height: number };
 				tabId: string;
@@ -248,6 +251,7 @@
 			screenshotPath = response.screenshotPath;
 			viewport = response.viewport;
 			actions = response.session.actions;
+			dismissals = response.session.dismissals ?? [];
 
 			// On reconnect, restore the playhead persisted with the Chrome session so
 			// history continues where it left off. A freshly launched Chrome starts
@@ -603,8 +607,57 @@
 	}
 
 	function handleClick(x: number, y: number) {
-		if (selectedAction === 'click' || selectedAction === 'hover') {
+		if (selectedAction === 'click' || selectedAction === 'hover' || selectedAction === 'dismiss') {
 			clickCoordinates = { x, y };
+		}
+	}
+
+	// Dismiss a popup/overlay at the selected coordinates. Recorded as a
+	// DismissEvent (separate from task actions) and does NOT move the playhead.
+	async function handleDismiss() {
+		if (!session.id || !tabId || !clickCoordinates) return;
+
+		actionLoading = true;
+		error = null;
+		startScreenshotPolling();
+
+		try {
+			const response = await apiRequest<{
+				session: { dismissals?: DismissEvent[] };
+				screenshotPath: string;
+				currentUrl?: string;
+				tabId: string;
+			}>(`/api/sessions/${session.id}/dismiss`, {
+				method: 'POST',
+				body: { tabId, coordinates: clickCoordinates, explanation }
+			});
+
+			screenshotPath = response.screenshotPath;
+			currentUrl = response.currentUrl ?? null;
+			dismissals = response.session.dismissals ?? [];
+
+			// Clear the dismiss form
+			selectedAction = null;
+			explanation = '';
+			clickCoordinates = null;
+		} catch (e) {
+			reportError(e);
+		} finally {
+			stopScreenshotPolling();
+			actionLoading = false;
+		}
+	}
+
+	async function handleDeleteDismissal(id: string) {
+		if (!session.id) return;
+		try {
+			const response = await apiRequest<{ session: { dismissals?: DismissEvent[] } }>(
+				`/api/sessions/${session.id}/dismiss`,
+				{ method: 'DELETE', body: { dismissalId: id } }
+			);
+			dismissals = response.session.dismissals ?? [];
+		} catch (e) {
+			reportError(e);
 		}
 	}
 
@@ -844,6 +897,9 @@
 			(selectedAction !== 'type' || typeText.trim() !== '')
 	);
 
+	// Dismiss only needs a target point — explanation is optional (it's not a step).
+	let canDismiss = $derived(selectedAction === 'dismiss' && clickCoordinates !== null);
+
 	// Only disable buttons if there's already a pending action queued (allow one queue)
 	let isLoading = $derived(actionLoading || tabLoading || pendingAction !== null);
 
@@ -859,6 +915,10 @@
 		// When editing a click/hover action with coordinates, show those
 		if ((selectedAction === 'click' || selectedAction === 'hover') && clickCoordinates) {
 			return { type: selectedAction, coordinates: clickCoordinates };
+		}
+		// Dismiss: reuse the click marker so the target point is visible.
+		if (selectedAction === 'dismiss' && clickCoordinates) {
+			return { type: 'click', coordinates: clickCoordinates };
 		}
 		// When editing a scroll action, show that
 		if (selectedAction === 'scroll') {
@@ -984,7 +1044,9 @@
 									src={versionedSrc(displayScreenshot)}
 									{viewport}
 									onclick={handleClick}
-									clickEnabled={selectedAction === 'click' || selectedAction === 'hover'}
+									clickEnabled={selectedAction === 'click' ||
+										selectedAction === 'hover' ||
+										selectedAction === 'dismiss'}
 									hoverInfo={effectiveHoverInfo}
 								/>
 								{#snippet failed()}
@@ -1010,7 +1072,7 @@
 							{/if}
 						</div>
 						<div class="screenshot-toolbar">
-							{#if clickCoordinates && (selectedAction === 'click' || selectedAction === 'hover')}
+							{#if clickCoordinates && (selectedAction === 'click' || selectedAction === 'hover' || selectedAction === 'dismiss')}
 								<span class="coordinates">Selected: ({clickCoordinates.x}, {clickCoordinates.y})</span>
 							{/if}
 							<div class="toolbar-buttons">
@@ -1082,10 +1144,46 @@
 							<button class="update-btn" onclick={updateActionHandler} disabled={isLoading || !canExecute}>
 								{isLoading ? 'Running...' : 'Update & Run Action'}
 							</button>
+						{:else if selectedAction === 'dismiss'}
+							<button class="dismiss-btn" onclick={handleDismiss} disabled={isLoading || !canDismiss}>
+								{isLoading ? 'Dismissing...' : 'Dismiss popup'}
+							</button>
 						{:else}
 							<button class="execute-btn" onclick={executeAction} disabled={isLoading || !canExecute}>
 								{isLoading ? 'Executing...' : 'Execute Action'}
 							</button>
+						{/if}
+
+						{#if dismissals.length > 0}
+							<div class="dismissals-panel">
+								<div class="dismissals-header">Dismissed popups ({dismissals.length})</div>
+								<ul class="dismissals-list">
+									{#each dismissals as d (d.id)}
+										<li class="dismissal-item">
+											{#if d.screenshotBefore}
+												<img
+													class="dismissal-thumb"
+													src={versionedSrc(d.screenshotBefore)}
+													alt="Dismissed popup"
+												/>
+											{/if}
+											<div class="dismissal-meta">
+												<span class="dismissal-label">
+													{d.locator?.text || d.locator?.ariaLabel || d.locator?.tag || 'element'}
+												</span>
+												<span class="dismissal-domain">{d.domain}</span>
+											</div>
+											<button
+												class="dismissal-delete"
+												onclick={() => handleDeleteDismissal(d.id)}
+												title="Remove this dismissal record"
+											>
+												×
+											</button>
+										</li>
+									{/each}
+								</ul>
+							</div>
 						{/if}
 					{/if}
 				</div>
@@ -1469,6 +1567,103 @@
 
 	.update-btn:hover:not(:disabled) {
 		background: var(--color-purple-hover);
+	}
+
+	.dismiss-btn {
+		width: 100%;
+		padding: var(--space-lg);
+		font-size: 1.1rem;
+		font-weight: 600;
+		background: var(--color-warning, #f59e0b);
+		color: white;
+	}
+
+	.dismiss-btn:hover:not(:disabled) {
+		background: var(--color-warning-hover, #d97706);
+	}
+
+	.dismissals-panel {
+		margin-top: var(--space-md);
+		padding: var(--space-md);
+		background: var(--color-bg-tertiary);
+		border: 1px dashed var(--color-border);
+		border-radius: var(--radius-md);
+	}
+
+	.dismissals-header {
+		font-size: 0.8rem;
+		font-weight: 600;
+		color: var(--color-text-muted);
+		margin-bottom: var(--space-sm);
+	}
+
+	.dismissals-list {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-xs);
+	}
+
+	.dismissal-item {
+		display: flex;
+		align-items: center;
+		gap: var(--space-sm);
+		padding: var(--space-xs);
+		background: var(--color-bg-white);
+		border-radius: var(--radius-sm);
+	}
+
+	.dismissal-thumb {
+		width: 48px;
+		height: 32px;
+		object-fit: cover;
+		object-position: top left;
+		border-radius: var(--radius-sm);
+		border: 1px solid var(--color-border);
+		flex-shrink: 0;
+	}
+
+	.dismissal-meta {
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+		flex: 1;
+	}
+
+	.dismissal-label {
+		font-size: 0.8rem;
+		color: var(--color-text-secondary);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.dismissal-domain {
+		font-size: 0.7rem;
+		color: var(--color-text-muted);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.dismissal-delete {
+		flex-shrink: 0;
+		width: 24px;
+		height: 24px;
+		border: none;
+		border-radius: var(--radius-sm);
+		background: var(--color-bg-tertiary);
+		color: var(--color-text-muted);
+		font-size: 1rem;
+		line-height: 1;
+		cursor: pointer;
+	}
+
+	.dismissal-delete:hover {
+		background: var(--color-danger, #ef4444);
+		color: white;
 	}
 
 	.history-section {
