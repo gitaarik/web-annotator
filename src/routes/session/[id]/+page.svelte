@@ -51,7 +51,10 @@
 	let hoverInfo = $state<HoverInfo>(null);
 	let editingActionIndex = $state<number | null>(null);
 	let manualEditMode = $state(false);
-	let pollingInterval = $state<ReturnType<typeof setInterval> | null>(null);
+	let pollingInterval = $state<ReturnType<typeof setTimeout> | null>(null);
+	// Sequential polling guard: only one screenshot capture is ever in flight, so
+	// slow captures can't stack into a thundering herd on the CDP connection.
+	let pollingActive = false;
 
 	// Visual loading state (can be hidden while action still processing)
 	let showLoadingIndicator = $state(false);
@@ -143,8 +146,18 @@
 		}
 	}
 
+	// One poll iteration, then schedules the next only after this one finishes —
+	// never overlapping, so captures can't pile up on the CDP connection.
+	async function pollTick() {
+		if (!pollingActive) return;
+		await pollScreenshot();
+		if (!pollingActive) return;
+		pollingInterval = setTimeout(pollTick, 300);
+	}
+
 	function startScreenshotPolling() {
-		if (pollingInterval) return;
+		if (pollingActive) return;
+		pollingActive = true;
 		showLoadingIndicator = true;
 		lateUpdateShown = false;
 
@@ -156,14 +169,13 @@
 			}
 		}, 1000);
 
-		// Poll immediately, then every 300ms
-		pollScreenshot();
-		pollingInterval = setInterval(pollScreenshot, 300);
+		pollTick();
 	}
 
 	function stopScreenshotPolling() {
+		pollingActive = false;
 		if (pollingInterval) {
-			clearInterval(pollingInterval);
+			clearTimeout(pollingInterval);
 			pollingInterval = null;
 		}
 		if (hideIndicatorTimeout) {
