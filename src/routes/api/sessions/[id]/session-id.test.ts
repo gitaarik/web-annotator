@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { GET, DELETE } from './+server';
+import { GET, PATCH, DELETE } from './+server';
 import * as storage from '$lib/server/storage';
 import * as browser from '$lib/server/browser';
 import type { AnnotationSession } from '$lib/types';
@@ -43,6 +43,63 @@ describe('GET /api/sessions/[id]', () => {
 		const response = await GET({
 			params: { id: 'non-existent' }
 		} as Parameters<typeof GET>[0]);
+		const data = await response.json();
+
+		expect(response.status).toBe(404);
+		expect(data.error).toBe('Session not found');
+	});
+});
+
+describe('PATCH /api/sessions/[id]', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it('updates the session prompt', async () => {
+		const updated = { ...mockSession, prompt: 'Updated task' };
+		vi.mocked(storage.updateSession).mockResolvedValue(updated);
+
+		const response = await PATCH({
+			params: { id: 'session-1' },
+			request: { json: () => Promise.resolve({ prompt: 'Updated task' }) } as Request
+		} as Parameters<typeof PATCH>[0]);
+		const data = await response.json();
+
+		expect(response.status).toBe(200);
+		expect(data.session.prompt).toBe('Updated task');
+		expect(storage.updateSession).toHaveBeenCalledWith('session-1', { prompt: 'Updated task' });
+	});
+
+	it('trims the prompt before saving', async () => {
+		vi.mocked(storage.updateSession).mockResolvedValue(mockSession);
+
+		await PATCH({
+			params: { id: 'session-1' },
+			request: { json: () => Promise.resolve({ prompt: '  Updated task  ' }) } as Request
+		} as Parameters<typeof PATCH>[0]);
+
+		expect(storage.updateSession).toHaveBeenCalledWith('session-1', { prompt: 'Updated task' });
+	});
+
+	it('returns 400 when prompt is empty or whitespace', async () => {
+		const response = await PATCH({
+			params: { id: 'session-1' },
+			request: { json: () => Promise.resolve({ prompt: '   ' }) } as Request
+		} as Parameters<typeof PATCH>[0]);
+		const data = await response.json();
+
+		expect(response.status).toBe(400);
+		expect(data.error).toBe('A non-empty prompt is required');
+		expect(storage.updateSession).not.toHaveBeenCalled();
+	});
+
+	it('returns 404 when session not found', async () => {
+		vi.mocked(storage.updateSession).mockResolvedValue(null);
+
+		const response = await PATCH({
+			params: { id: 'non-existent' },
+			request: { json: () => Promise.resolve({ prompt: 'Updated task' }) } as Request
+		} as Parameters<typeof PATCH>[0]);
 		const data = await response.json();
 
 		expect(response.status).toBe(404);

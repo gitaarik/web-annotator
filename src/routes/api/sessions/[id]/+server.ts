@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getSession, deleteSession } from '$lib/server/storage';
+import { getSession, deleteSession, updateSession } from '$lib/server/storage';
 import { createTab, getViewport, refreshScreenshot } from '$lib/server/browser';
 import { notFound, badRequest, browserErrorResponse } from '$lib/server/api-utils';
 
@@ -59,6 +59,27 @@ export const POST: RequestHandler = async ({ params }) => {
 	} catch (error) {
 		return browserErrorResponse(error, 'Failed to resume session');
 	}
+};
+
+export const PATCH: RequestHandler = async ({ params, request }) => {
+	let body: { prompt?: unknown };
+	try {
+		body = await request.json();
+	} catch {
+		return badRequest('Invalid JSON');
+	}
+
+	if (typeof body.prompt !== 'string' || !body.prompt.trim()) {
+		return badRequest('A non-empty prompt is required');
+	}
+
+	const session = await updateSession(params.id, { prompt: body.prompt.trim() });
+
+	if (!session) {
+		return notFound('Session not found');
+	}
+
+	return json({ session });
 };
 
 export const DELETE: RequestHandler = async ({ params }) => {

@@ -76,6 +76,26 @@ export async function getSession(sessionId: string): Promise<AnnotationSession |
 	}
 }
 
+/**
+ * Updates editable session-level metadata. Only whitelisted fields (currently
+ * the task prompt) can be changed — the URL and recorded actions/tabs are tied
+ * to the captured browser state and are deliberately not editable here.
+ */
+export async function updateSession(
+	sessionId: string,
+	updates: { prompt?: string }
+): Promise<AnnotationSession | null> {
+	const session = await getSession(sessionId);
+	if (!session) return null;
+
+	if (typeof updates.prompt === 'string') {
+		session.prompt = updates.prompt;
+	}
+
+	await fs.writeFile(getSessionPath(sessionId), JSON.stringify(session, null, 2));
+	return session;
+}
+
 export async function addAction(
 	sessionId: string,
 	action: Action

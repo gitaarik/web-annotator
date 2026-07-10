@@ -54,6 +54,10 @@
 	let hoverInfo = $state<HoverInfo>(null);
 	let editingActionIndex = $state<number | null>(null);
 	let manualEditMode = $state(false);
+	// Inline editing of the session's task/prompt (metadata only).
+	let editingTask = $state(false);
+	let taskDraft = $state('');
+	let savingTask = $state(false);
 	let pollingInterval = $state<ReturnType<typeof setTimeout> | null>(null);
 	// Sequential polling guard: only one screenshot capture is ever in flight, so
 	// slow captures can't stack into a thundering herd on the CDP connection.
@@ -606,6 +610,43 @@
 		}
 	}
 
+	function startEditTask() {
+		taskDraft = session.prompt;
+		editingTask = true;
+	}
+
+	function cancelEditTask() {
+		editingTask = false;
+	}
+
+	async function saveTask() {
+		const trimmed = taskDraft.trim();
+		if (!trimmed) {
+			error = 'Task cannot be empty';
+			return;
+		}
+		if (trimmed === session.prompt) {
+			editingTask = false;
+			return;
+		}
+
+		savingTask = true;
+		error = null;
+
+		try {
+			const response = await apiRequest<{ session: { prompt: string } }>(
+				`/api/sessions/${session.id}`,
+				{ method: 'PATCH', body: { prompt: trimmed } }
+			);
+			session.prompt = response.session.prompt;
+			editingTask = false;
+		} catch (e) {
+			error = getErrorMessage(e);
+		} finally {
+			savingTask = false;
+		}
+	}
+
 	function handleClick(x: number, y: number) {
 		if (selectedAction === 'click' || selectedAction === 'hover' || selectedAction === 'dismiss') {
 			clickCoordinates = { x, y };
@@ -963,7 +1004,35 @@
 		<section class="annotation-interface">
 			<div class="task-info">
 				<p><strong>URL:</strong> {session.url}</p>
-				<p><strong>Task:</strong> {session.prompt}</p>
+				{#if editingTask}
+					<div class="task-edit">
+						<label for="task-edit-input"><strong>Task:</strong></label>
+						<textarea
+							id="task-edit-input"
+							value={taskDraft}
+							oninput={(e) => (taskDraft = e.currentTarget.value)}
+							rows="3"
+							disabled={savingTask}
+						></textarea>
+						<div class="task-edit-actions">
+							<button
+								class="task-save-btn"
+								onclick={saveTask}
+								disabled={savingTask || !taskDraft.trim()}
+							>
+								{savingTask ? 'Saving…' : 'Save'}
+							</button>
+							<button class="task-cancel-btn" onclick={cancelEditTask} disabled={savingTask}>
+								Cancel
+							</button>
+						</div>
+					</div>
+				{:else}
+					<p class="task-line">
+						<span><strong>Task:</strong> {session.prompt}</span>
+						<button class="task-edit-btn" onclick={startEditTask}>Edit</button>
+					</p>
+				{/if}
 			</div>
 
 			{#if tabs.length > 0}
@@ -1266,6 +1335,69 @@
 
 	.task-info p {
 		margin: var(--space-xs) 0;
+	}
+
+	.task-line {
+		display: flex;
+		align-items: baseline;
+		gap: var(--space-sm);
+	}
+
+	.task-edit-btn {
+		padding: var(--space-xs) var(--space-sm);
+		font-size: 0.8rem;
+		background: var(--color-bg-tertiary);
+		color: var(--color-text-secondary);
+		border: 1px solid var(--color-border);
+		flex-shrink: 0;
+	}
+
+	.task-edit-btn:hover:not(:disabled) {
+		background: var(--color-bg-secondary);
+	}
+
+	.task-edit {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-sm);
+		margin: var(--space-xs) 0;
+	}
+
+	.task-edit textarea {
+		width: 100%;
+		padding: var(--space-md);
+		border: 2px solid var(--color-border);
+		border-radius: var(--radius-md);
+		font-size: 1rem;
+		font-family: inherit;
+		box-sizing: border-box;
+		resize: vertical;
+	}
+
+	.task-edit textarea:focus {
+		outline: none;
+		border-color: var(--color-primary);
+	}
+
+	.task-edit-actions {
+		display: flex;
+		gap: var(--space-sm);
+	}
+
+	.task-save-btn,
+	.task-cancel-btn {
+		padding: var(--space-sm) var(--space-lg);
+		font-size: 0.9rem;
+	}
+
+	.task-cancel-btn {
+		background: var(--color-bg-tertiary);
+		color: var(--color-text-secondary);
+		border: 1px solid var(--color-border);
+	}
+
+	.task-cancel-btn:hover:not(:disabled) {
+		background: var(--color-bg-secondary);
 	}
 
 	.main-content {
