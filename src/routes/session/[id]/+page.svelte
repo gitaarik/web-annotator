@@ -48,6 +48,9 @@
 	// Set when the browser renderer is wedged (blocked main thread). Shows a
 	// reload prompt instead of silently retrying screenshots forever.
 	let browserUnresponsive = $state(false);
+	// Set after a mid-session browser restart (hard wedge / crash) so the UI can
+	// explain why the current step jumped back to the start. Dismissible.
+	let restartNotice = $state(false);
 	let replayedUpTo = $state(-1);
 	// Gate playhead persistence until the initial position is restored on mount.
 	let positionSynced = $state(false);
@@ -261,6 +264,11 @@
 			// history continues where it left off. A freshly launched Chrome starts
 			// at the beginning (-1).
 			replayedUpTo = response.isNew ? -1 : response.replayPosition;
+
+			// A fresh Chrome with steps already recorded means the previous browser
+			// was lost (hard wedge or crash) and we've restarted from the beginning.
+			// Surface it so the reset to step 1 isn't a surprise; steps are preserved.
+			restartNotice = response.isNew && response.session.actions.length > 0;
 		} catch (e) {
 			reportError(e);
 		} finally {
@@ -984,6 +992,20 @@
 		<div class="error">{error}</div>
 	{/if}
 
+	{#if restartNotice}
+		<div class="restart-notice">
+			<span>
+				The browser session was lost, so it restarted from the beginning. Your
+				recorded steps are preserved — the current step is back at the start.
+			</span>
+			<button
+				class="restart-notice-dismiss"
+				onclick={() => (restartNotice = false)}
+				aria-label="Dismiss"
+			>×</button>
+		</div>
+	{/if}
+
 	{#if isCompleted}
 		<section class="completed">
 			<h2>Annotation Complete</h2>
@@ -1083,11 +1105,11 @@
 					{#if browserUnresponsive}
 						<div class="screenshot-placeholder">
 							<div class="unresponsive-content">
-								<p class="unresponsive-title">Browser became unresponsive</p>
+								<p class="unresponsive-title">Browser stopped responding</p>
 								<p class="unresponsive-text">
-									A dialog or script froze the page. Reload to recover the session.
+									The page froze and can't be used. Restarting relaunches the browser back at the first step — your recorded steps are kept.
 								</p>
-								<button class="reload-btn" onclick={recoverBrowser}>Reload</button>
+								<button class="reload-btn" onclick={recoverBrowser}>Restart from the beginning</button>
 							</div>
 						</div>
 					{:else if browserLoading}
@@ -1301,6 +1323,31 @@
 		padding: var(--space-lg);
 		border-radius: var(--radius-md);
 		margin-bottom: var(--space-lg);
+	}
+
+	.restart-notice {
+		display: flex;
+		align-items: flex-start;
+		gap: var(--space-md);
+		background: var(--color-warning-bg, #fef3c7);
+		color: var(--color-warning-text, #92400e);
+		border: 1px solid var(--color-warning, #f59e0b);
+		padding: var(--space-md) var(--space-lg);
+		border-radius: var(--radius-md);
+		margin-bottom: var(--space-lg);
+		font-size: 0.9rem;
+	}
+
+	.restart-notice-dismiss {
+		margin-left: auto;
+		flex-shrink: 0;
+		background: transparent;
+		border: none;
+		color: inherit;
+		font-size: 1.25rem;
+		line-height: 1;
+		padding: 0 var(--space-xs);
+		cursor: pointer;
 	}
 
 	button {
