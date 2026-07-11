@@ -506,15 +506,26 @@
 						</button>
 					{/if}
 				</div>
-				{#if onAddNew && !isAddingNew}
+				{#if (onActivate && replayedUpTo < actions.length - 1) || (onAddNew && !isAddingNew)}
 					<div class="action-buttons">
-						<button
-							class="add-action-btn"
-							onclick={onAddNew}
-							title="Add a new action"
-						>
-							+ Add
-						</button>
+						{#if onActivate && replayedUpTo < actions.length - 1}
+							<button
+								class="sync-here-btn"
+								onclick={() => onActivate(actions.length)}
+								title="Move the history marker here — treat every recorded step as done, with the live browser as the current position"
+							>
+								⇥ Sync to here
+							</button>
+						{/if}
+						{#if onAddNew && !isAddingNew}
+							<button
+								class="add-action-btn"
+								onclick={onAddNew}
+								title="Add a new action"
+							>
+								+ Add
+							</button>
+						{/if}
 					</div>
 				{/if}
 			</div>
@@ -959,6 +970,28 @@
 
 	.add-action-btn:hover {
 		background: var(--color-success-hover);
+	}
+
+	/* Corrective action on the "Now" card: snap the marker to the end when it has
+	   drifted behind the latest recorded step. Warning-tinted to stand out. */
+	.sync-here-btn {
+		flex: 1;
+		padding: 0.4rem 0.5rem;
+		font-size: 0.85rem;
+		background: var(--color-warning-bg, #fef3c7);
+		color: var(--color-warning-text, #92400e);
+		border: 1px solid var(--color-warning, #f59e0b);
+		border-radius: 4px;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 28px;
+		font-weight: 600;
+	}
+
+	.sync-here-btn:hover {
+		background: var(--color-warning-hover-bg, #fde68a);
 	}
 
 	.delete-action-btn {

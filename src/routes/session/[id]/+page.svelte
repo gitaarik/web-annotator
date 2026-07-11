@@ -916,18 +916,6 @@
 		error = null;
 	}
 
-	// Move the playhead to the latest recorded step, i.e. mark the live browser
-	// as the current position. Escape hatch for when the marker drifts from the
-	// live state (e.g. a session that was recorded before the playhead-tracking
-	// fix, or the browser was driven directly). Non-destructive: only moves the
-	// marker; the persistence effect saves it so a reload stays in sync.
-	function handleSyncToLatest() {
-		replayedUpTo = actions.length - 1;
-	}
-
-	// The marker is behind the latest recorded step — offer to sync.
-	let canSyncToLatest = $derived(actions.length > 0 && replayedUpTo < actions.length - 1);
-
 	// Clear form when exiting manual edit mode
 	$effect(() => {
 		if (!manualEditMode && editingActionIndex !== null) {
@@ -1163,15 +1151,6 @@
 								<span class="coordinates">Selected: ({clickCoordinates.x}, {clickCoordinates.y})</span>
 							{/if}
 							<div class="toolbar-buttons">
-								{#if canSyncToLatest && !manualEditMode}
-									<button
-										class="toolbar-btn sync-btn"
-										onclick={handleSyncToLatest}
-										title="Mark the live browser as the latest step (move the history marker to the end)"
-									>
-										⇥ Sync to latest
-									</button>
-								{/if}
 								{#if !manualEditMode}
 									<button
 										class="toolbar-btn"
@@ -1673,18 +1652,6 @@
 	.toolbar-btn:disabled {
 		opacity: 0.6;
 		cursor: not-allowed;
-	}
-
-	/* Corrective action — stand out from the neutral toolbar buttons. */
-	.sync-btn {
-		background: var(--color-warning-bg, #fef3c7);
-		color: var(--color-warning-text, #92400e);
-		border-color: var(--color-warning, #f59e0b);
-	}
-
-	.sync-btn:hover:not(:disabled) {
-		background: var(--color-warning-hover-bg, #fde68a);
-		border-color: var(--color-warning, #f59e0b);
 	}
 
 	.coordinates {
