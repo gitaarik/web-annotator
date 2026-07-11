@@ -7,6 +7,7 @@
 
 import WebSocket from 'ws';
 import http from 'http';
+import { matchVendor, domainOf, summarizeCpuProfile, type CpuProfile } from './wedge-forensics.js';
 
 interface CdpMessage {
 	id: number;
@@ -79,6 +80,10 @@ export class CdpClient {
 	// Timestamp (ms) until which the renderer is assumed wedged; renderer ops
 	// short-circuit while this is in the future. 0 = healthy.
 	private wedgedUntil = 0;
+	// Timestamp (ms) when the current wedge was first detected; 0 = not wedged.
+	// Purely for measurement: on recovery we log how long the main thread stayed
+	// blocked, so we can tell transient stalls from true hard wedges.
+	private wedgedSince = 0;
 	// Current top-level document URL, kept current from browser-process
 	// navigation events (Page.frameNavigated / navigatedWithinDocument) and
 	// seeded from the frame tree on connect. Reading it never touches the
@@ -86,6 +91,17 @@ export class CdpClient {
 	private currentUrl = '';
 	// Id of the main frame; used to ignore sub-frame navigation events.
 	private mainFrameId: string | null = null;
+
+	// --- Wedge forensics (opt-in via WEDGE_FORENSICS=1) ---
+	// When enabled, we track request origins + flag anti-bot vendors and keep a
+	// rolling CPU profile, so that on the next wedge we can log a report of what
+	// the page was doing to the main thread. All of this is off by default.
+	private readonly forensicsEnabled = process.env.WEDGE_FORENSICS === '1';
+	private loadedDomains = new Map<string, number>();
+	private detectedVendors = new Set<string>();
+	private lastProfileSummary: string | null = null;
+	private profileTimer: ReturnType<typeof setInterval> | null = null;
+	private profilingActive = false;
 
 	constructor(
 		public readonly cdpPort: number,
@@ -164,6 +180,7 @@ export class CdpClient {
 				// already-loaded page no navigation event fires, so without this the
 				// cache would stay empty until the next navigation.
 				this.seedUrlFromFrameTree().catch(() => {});
+				if (this.forensicsEnabled) this.startForensics().catch(() => {});
 				resolve();
 			});
 
@@ -215,6 +232,20 @@ export class CdpClient {
 	 * Handle unsolicited CDP events (messages without an id).
 	 */
 	private handleEvent(method: string, params?: Record<string, unknown>): void {
+		if (this.forensicsEnabled && method === 'Network.requestWillBeSent') {
+			const url = (params?.request as { url?: string } | undefined)?.url;
+			if (url) {
+				const domain = domainOf(url);
+				if (domain) this.loadedDomains.set(domain, (this.loadedDomains.get(domain) ?? 0) + 1);
+				const vendor = matchVendor(url);
+				if (vendor && !this.detectedVendors.has(vendor)) {
+					this.detectedVendors.add(vendor);
+					console.warn(`[CDP][forensics] anti-bot vendor seen: ${vendor}  (${url.slice(0, 120)})`);
+				}
+			}
+			return;
+		}
+
 		if (method === 'Page.javascriptDialogOpening') {
 			// A JavaScript dialog (alert/confirm/prompt/beforeunload) blocks the
 			// renderer's main thread until dismissed. Auto-handle it so it can't
@@ -286,15 +317,126 @@ export class CdpClient {
 		try {
 			const result = await fn();
 			this.wedgedUntil = 0; // a successful op means the renderer is alive
+			this.noteRendererAlive();
 			return result;
 		} catch (err) {
 			// A command timeout on a renderer op means the main thread is blocked.
 			if (err instanceof Error && err.message.startsWith('CDP timeout')) {
 				console.warn(`[CDP] renderer wedged (${err.message}); breaker open for ${RENDERER_WEDGE_TTL_MS}ms`);
 				this.wedgedUntil = Date.now() + RENDERER_WEDGE_TTL_MS;
+				this.markWedged('renderer op');
 				throw new RendererUnresponsiveError();
 			}
 			throw err;
+		}
+	}
+
+	/**
+	 * Record the start of a wedge (only the first detection sticks), so we can
+	 * measure how long the main thread stays blocked. Pairs with noteRendererAlive.
+	 */
+	private markWedged(source: string): void {
+		if (this.wedgedSince === 0) {
+			this.wedgedSince = Date.now();
+			console.warn(`[CDP] renderer wedged (${source}) — main thread blocked; measuring recovery`);
+			if (this.forensicsEnabled) this.dumpForensics(source);
+		}
+	}
+
+	/**
+	 * Mark the renderer alive again. If it was wedged, log how long the block
+	 * lasted — this is the data for tuning the grace window (transient vs hard).
+	 */
+	private noteRendererAlive(): void {
+		if (this.wedgedSince !== 0) {
+			console.warn(`[CDP] renderer recovered after ${Date.now() - this.wedgedSince}ms`);
+			this.wedgedSince = 0;
+		}
+	}
+
+	/**
+	 * Enable request-origin tracking (Network) and a rolling CPU profile so a
+	 * later wedge can be explained. Best-effort — any failure just means less
+	 * forensic data, never a broken session.
+	 */
+	private async startForensics(): Promise<void> {
+		console.warn('[CDP][forensics] enabled — tracking request origins + rolling CPU profile');
+		try {
+			await this.send('Network.enable');
+		} catch {
+			// no request-origin data; vendor detection will be empty
+		}
+		try {
+			await this.send('Profiler.enable');
+			await this.send('Profiler.setSamplingInterval', { interval: 1000 }); // microseconds → 1ms
+			await this.send('Profiler.start');
+			this.profilingActive = true;
+		} catch {
+			this.profilingActive = false;
+		}
+		// Roll the profile every few seconds so we keep a snapshot of the *ramp*
+		// even when a later hard wedge blocks Profiler.stop entirely.
+		this.profileTimer = setInterval(() => {
+			this.rollProfile().catch(() => {});
+		}, 4000);
+	}
+
+	/** Capture-and-restart the CPU profile, keeping the latest healthy snapshot. */
+	private async rollProfile(): Promise<void> {
+		// Skip while (possibly) wedged: a stop() would just block. Keep the last
+		// good snapshot, which is exactly the pre-wedge window we want.
+		if (!this.profilingActive || this.wedgedSince !== 0 || Date.now() < this.wedgedUntil) return;
+		try {
+			const res = (await this.send('Profiler.stop', {}, 2000)) as { profile?: CpuProfile };
+			this.lastProfileSummary = summarizeCpuProfile(res?.profile);
+			await this.send('Profiler.start');
+		} catch {
+			// stop timed out or errored — try to keep profiling for next window.
+			try {
+				await this.send('Profiler.start');
+			} catch {
+				this.profilingActive = false;
+			}
+		}
+	}
+
+	/** Log what the page was doing to the main thread when the wedge was detected. */
+	private dumpForensics(source: string): void {
+		const vendors = this.detectedVendors.size ? [...this.detectedVendors].join(', ') : 'none detected';
+		const topDomains =
+			[...this.loadedDomains.entries()]
+				.sort((a, b) => b[1] - a[1])
+				.slice(0, 12)
+				.map(([d, n]) => `${d}(${n})`)
+				.join(', ') || 'none';
+		const ramp = this.lastProfileSummary
+			? this.lastProfileSummary.replace(/\n/g, '\n      ')
+			: 'no profile captured';
+		console.warn(
+			`\n[CDP][forensics] ===== WEDGE (${source}) =====\n` +
+				`  url: ${this.currentUrl}\n` +
+				`  anti-bot vendors: ${vendors}\n` +
+				`  top request origins: ${topDomains}\n` +
+				`  CPU (rolling snapshot from ≤4s before the wedge):\n      ${ramp}\n` +
+				`[CDP][forensics] ============================`
+		);
+		// Best-effort snapshot of the wedge moment itself. On a hard wedge this
+		// stop() can't be serviced (the thread is blocked) — that failure is
+		// itself the signal, so we log it either way.
+		this.captureLiveProfile().catch(() => {});
+	}
+
+	private async captureLiveProfile(): Promise<void> {
+		if (!this.profilingActive) return;
+		try {
+			const res = (await this.send('Profiler.stop', {}, 2500)) as { profile?: CpuProfile };
+			const summary = summarizeCpuProfile(res?.profile).replace(/\n/g, '\n      ');
+			console.warn(`[CDP][forensics] live profile at wedge:\n      ${summary}`);
+			await this.send('Profiler.start'); // resume for the next episode
+		} catch {
+			console.warn(
+				'[CDP][forensics] live profile unavailable — Profiler.stop blocked (confirms hard wedge)'
+			);
 		}
 	}
 
@@ -576,6 +718,7 @@ export class CdpClient {
 					SCREENSHOT_TIMEOUT_MS
 				)) as { data: string };
 				this.wedgedUntil = 0; // a successful capture means the renderer is alive
+				this.noteRendererAlive();
 				return result.data;
 			} catch (err) {
 				lastError = err instanceof Error ? err : new Error(String(err));
@@ -588,6 +731,7 @@ export class CdpClient {
 					// help — trip the breaker and bail with a clear, actionable error.
 					if (!(await this.isRendererResponsive())) {
 						this.wedgedUntil = Date.now() + RENDERER_WEDGE_TTL_MS;
+						this.markWedged('screenshot');
 						throw new RendererUnresponsiveError();
 					}
 					// Otherwise the failure may be transient (e.g. reconnect) — retry.
@@ -607,6 +751,7 @@ export class CdpClient {
 	async isRendererResponsive(timeoutMs = 3000): Promise<boolean> {
 		try {
 			await this.send('Runtime.evaluate', { expression: '1', returnByValue: true }, timeoutMs);
+			this.noteRendererAlive();
 			return true;
 		} catch {
 			return false;
@@ -853,6 +998,10 @@ export class CdpClient {
 	 * Close the CDP connection.
 	 */
 	close(): void {
+		if (this.profileTimer) {
+			clearInterval(this.profileTimer);
+			this.profileTimer = null;
+		}
 		if (this.ws) {
 			this.ws.close();
 			this.ws = null;

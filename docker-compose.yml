@@ -21,6 +21,9 @@ services:
       - BROWSER_VIEWPORT_HEIGHT=890
       # Run `tsx watch` so source edits reload the server (see docker-entrypoint.sh).
       - SERVER_CMD=dev
+      # Opt-in wedge forensics: 1 = log anti-bot vendors + CPU profile on a wedge.
+      # Off by default (no overhead). Enable with `WEDGE_FORENSICS=1 docker compose up -d browser-service`.
+      - WEDGE_FORENSICS=${WEDGE_FORENSICS:-0}
     # Needed for Chromium shared memory
     shm_size: '2gb'
     healthcheck:
