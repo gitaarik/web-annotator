@@ -710,7 +710,7 @@
 		}
 	}
 
-	function handleSelectForEdit(index: number) {
+	async function handleSelectForEdit(index: number) {
 		const action = actions[index];
 		manualEditMode = true;
 		editingActionIndex = index;
@@ -736,6 +736,13 @@
 		} else if (action.type === 'type' && action.text) {
 			typeText = action.text;
 		}
+
+		// Edit against the live browser: capture the current state so the canvas
+		// shows exactly what "Update & Run" will execute against. The prefilled
+		// coordinates above come from the recorded action, so they mark the old
+		// target on this fresh image — a reasonable starting point to re-place.
+		// Best-effort: on failure the last live screenshot stands.
+		await handleRefreshScreenshot();
 	}
 
 	function cancelEdit() {
@@ -940,12 +947,13 @@
 	// Only disable buttons if there's already a pending action queued (allow one queue)
 	let isLoading = $derived(actionLoading || tabLoading || pendingAction !== null);
 
-	// When editing, show the action's screenshot; otherwise show current browser state
-	let displayScreenshot = $derived(
-		manualEditMode && editingActionIndex !== null
-			? actions[editingActionIndex]?.screenshotPath ?? screenshotPath
-			: screenshotPath
-	);
+	// Always edit against the live browser — in edit mode as well as out. The
+	// coordinates you place must land on the same screenshot the action will run
+	// against, and replaySingleAction executes against the current browser state,
+	// not the recorded snapshot. Showing the old snapshot here would let you click
+	// on one image while the action fires against another. (handleSelectForEdit
+	// refreshes screenshotPath on entry so this reflects the true current state.)
+	let displayScreenshot = $derived(screenshotPath);
 
 	// Effective hoverInfo: show current editing state when editing, otherwise use history hover
 	let effectiveHoverInfo = $derived.by((): HoverInfo => {
