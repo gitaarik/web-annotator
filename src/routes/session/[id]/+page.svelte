@@ -48,6 +48,13 @@
 	// Set when the browser renderer is wedged (blocked main thread). Shows a
 	// reload prompt instead of silently retrying screenshots forever.
 	let browserUnresponsive = $state(false);
+	// A wedge is often a transient stall (heavy JS / GC), not a permanent hang.
+	// While busy-waiting we poll liveness for a grace window and resume if the
+	// page comes back, only falling through to browserUnresponsive if it doesn't.
+	let browserBusyWaiting = $state(false);
+	let busyWaitElapsed = $state(0);
+	// Bumped to cancel/supersede an in-flight wait (manual restart, remount).
+	let wedgeWaitToken = 0;
 	// Set after a mid-session browser restart (hard wedge / crash) so the UI can
 	// explain why the current step jumped back to the start. Dismissible.
 	let restartNotice = $state(false);
@@ -104,16 +111,67 @@
 	// else is a normal error message.
 	function reportError(e: unknown) {
 		if (e instanceof ApiError && e.code === 'RENDERER_UNRESPONSIVE') {
-			browserUnresponsive = true;
+			beginWedgeWait();
 		} else {
 			error = getErrorMessage(e);
 		}
 	}
 
+	// How long to tolerate a wedged renderer before offering a restart. Transient
+	// stalls clear within a few seconds; observed real wedges (trip.com) are hard
+	// and never recover, so a long wait is just dead time before the restart.
+	// Tune from the '[CDP] renderer recovered after Xms' logs: if real transients
+	// show up above this, raise it; if they're all hard wedges, this can go lower.
+	const RENDERER_GRACE_MS = 10000;
+	const RENDERER_PROBE_INTERVAL_MS = 2000;
+
 	// Recover a wedged renderer by reloading the page: reconnect re-attaches, and
 	// if the live page is still unhealthy the reconnect fallback reloads it.
 	function recoverBrowser() {
+		wedgeWaitToken++; // cancel any in-flight wait
 		window.location.reload();
+	}
+
+	// A wedged renderer is usually a transient stall (a big synchronous task, GC),
+	// not a permanent hang — so wait it out instead of jumping straight to a
+	// restart. Poll liveness for a grace window: if the page comes back we resume
+	// exactly where we were (no restart, no lost position); only if it stays dead
+	// past the window do we surface the restart prompt.
+	async function beginWedgeWait() {
+		if (browserBusyWaiting || browserUnresponsive || !session.id) return;
+		const token = ++wedgeWaitToken;
+		browserBusyWaiting = true;
+		busyWaitElapsed = 0;
+		stopScreenshotPolling(); // stop firing captures at a blocked thread
+		const start = Date.now();
+
+		while (wedgeWaitToken === token) {
+			await new Promise((r) => setTimeout(r, RENDERER_PROBE_INTERVAL_MS));
+			if (wedgeWaitToken !== token) return; // superseded/cancelled
+			busyWaitElapsed = Math.round((Date.now() - start) / 1000);
+
+			let responsive = false;
+			try {
+				const res = await fetch(`/api/sessions/${session.id}/health`);
+				responsive = (await res.json())?.responsive === true;
+			} catch {
+				responsive = false;
+			}
+			if (wedgeWaitToken !== token) return;
+
+			if (responsive) {
+				// Recovered on its own — resume with the current live state.
+				browserBusyWaiting = false;
+				await handleRefreshScreenshot();
+				return;
+			}
+			if (Date.now() - start >= RENDERER_GRACE_MS) {
+				// Stayed wedged past the grace window — treat it as a real hard wedge.
+				browserBusyWaiting = false;
+				browserUnresponsive = true;
+				return;
+			}
+		}
 	}
 
 	async function pollScreenshot() {
@@ -126,9 +184,9 @@
 			});
 			const data = await response.json();
 			if (response.status === 503 && data?.code === 'RENDERER_UNRESPONSIVE') {
-				// Renderer is wedged — stop polling and prompt a reload.
-				browserUnresponsive = true;
-				stopScreenshotPolling();
+				// Renderer is wedged — wait it out (many stalls are transient)
+				// before escalating to the restart prompt.
+				beginWedgeWait();
 				return;
 			}
 			if (data.screenshotPath) {
@@ -202,7 +260,8 @@
 
 		// Poll for browser URL changes every 2 seconds
 		const pollInterval = setInterval(async () => {
-			if (!session.id || !tabId || browserLoading || actionLoading || replayLoading) return;
+			if (!session.id || !tabId || browserLoading || actionLoading || replayLoading || browserBusyWaiting)
+				return;
 
 			try {
 				const response = await fetch(`/api/sessions/${session.id}/refresh`);
@@ -923,6 +982,66 @@
 		error = null;
 	}
 
+	// Deliberately restart the browser from the first step. Tears down the live
+	// Chrome and relaunches it clean at the session's start URL, resetting the
+	// current step to the beginning. Recorded steps are kept — this only discards
+	// the live browser and playhead so the session can be re-walked from the top.
+	async function handleRestart() {
+		if (!session.id || browserLoading || actionLoading || replayLoading) return;
+		if (
+			!confirm(
+				'Restart the browser from the first step?\n\nYour recorded steps are kept — only the live browser and the current position reset.'
+			)
+		) {
+			return;
+		}
+
+		browserLoading = true;
+		error = null;
+		stopScreenshotPolling();
+
+		try {
+			const response = await apiRequest<{
+				screenshotPath: string;
+				viewport: { width: number; height: number };
+				tabId: string;
+				tabs?: Tab[];
+				currentUrl?: string;
+				replayPosition: number;
+			}>(`/api/sessions/${session.id}/restart`, { method: 'POST' });
+
+			tabId = response.tabId;
+			tabs = response.tabs ?? tabs;
+			screenshotPath = response.screenshotPath;
+			screenshotVersion = Date.now();
+			viewport = response.viewport;
+			currentUrl = response.currentUrl ?? null;
+			replayedUpTo = -1;
+
+			// Deliberate restart, not the involuntary "browser was lost" case, so
+			// clear the wedge prompt, the recovery banner, and any in-flight wait.
+			wedgeWaitToken++;
+			browserBusyWaiting = false;
+			browserUnresponsive = false;
+			restartNotice = false;
+
+			// Clear transient action/edit state so the reset is clean.
+			manualEditMode = false;
+			editingActionIndex = null;
+			selectedAction = null;
+			explanation = '';
+			clickCoordinates = null;
+			typeText = '';
+			pendingAction = null;
+			pendingActionPreview = null;
+			queuedReplayIndex = null;
+		} catch (e) {
+			reportError(e);
+		} finally {
+			browserLoading = false;
+		}
+	}
+
 	// Clear form when exiting manual edit mode
 	$effect(() => {
 		if (!manualEditMode && editingActionIndex !== null) {
@@ -1098,7 +1217,19 @@
 
 			<div class="main-content">
 				<div class="screenshot-section">
-					{#if browserUnresponsive}
+					{#if browserBusyWaiting}
+						<div class="screenshot-placeholder">
+							<div class="unresponsive-content">
+								<span class="spinner"></span>
+								<p class="unresponsive-title">Page is busy</p>
+								<p class="unresponsive-text">
+									Waiting for it to respond… ({busyWaitElapsed}s). Heavy pages sometimes
+									stall for a few seconds and recover on their own.
+								</p>
+								<button class="reload-btn" onclick={recoverBrowser}>Restart now</button>
+							</div>
+						</div>
+					{:else if browserUnresponsive}
 						<div class="screenshot-placeholder">
 							<div class="unresponsive-content">
 								<p class="unresponsive-title">Browser stopped responding</p>
@@ -1175,6 +1306,14 @@
 									title="Export session as JSON"
 								>
 									↓ Export
+								</button>
+								<button
+									class="toolbar-btn restart-btn"
+									onclick={handleRestart}
+									disabled={browserLoading || actionLoading || replayLoading}
+									title="Restart the browser from the first step (recorded steps are kept)"
+								>
+									↺ Restart
 								</button>
 							</div>
 						</div>
@@ -1660,6 +1799,17 @@
 	.toolbar-btn:disabled {
 		opacity: 0.6;
 		cursor: not-allowed;
+	}
+
+	/* Warning tint ties Restart to the "reset to step 1" recovery banner. */
+	.toolbar-btn.restart-btn {
+		color: var(--color-warning-text, #92400e);
+		border-color: var(--color-warning, #f59e0b);
+	}
+
+	.toolbar-btn.restart-btn:hover:not(:disabled) {
+		background: var(--color-warning-bg, #fef3c7);
+		border-color: var(--color-warning, #f59e0b);
 	}
 
 	.coordinates {

@@ -253,6 +253,48 @@ export async function createTab(
 }
 
 /**
+ * Deliberately restart a session's browser from scratch: tear down the current
+ * Chrome (even if healthy) and relaunch a clean one at `url`, then reset the
+ * playhead to the start (-1).
+ *
+ * This is the user-triggered counterpart to createTab's automatic wedge
+ * recovery. Recorded steps are untouched — only the live browser and the
+ * "current step" marker are reset, so the session can be re-walked from the top.
+ */
+export async function restartBrowser(
+	url: string,
+	browserSessionId: string
+): Promise<{ tabId: string; url: string; replayPosition: number }> {
+	const tabId = state.generateTabId();
+
+	// forceNew tears down the existing Chrome and launches a fresh one, which
+	// resets the persisted playhead to -1.
+	const relaunch = await browserApi<{ isNew: boolean; replayPosition?: number }>(
+		'POST',
+		`/sessions/${browserSessionId}/launch`,
+		{ url, forceNew: true }
+	);
+
+	// Fresh Chrome opens at about:blank; drive it to the session's start URL.
+	const navResult = await browserApi<{ success: boolean; url: string }>(
+		'POST',
+		`/sessions/${browserSessionId}/navigate`,
+		{ url }
+	);
+	const currentUrl = navResult.url;
+
+	state.setTab(tabId, { sessionId: browserSessionId, url: currentUrl });
+	state.setActiveTabId(tabId);
+	state.setActiveSessionId(browserSessionId);
+
+	return {
+		tabId,
+		url: currentUrl,
+		replayPosition: relaunch.replayPosition ?? -1
+	};
+}
+
+/**
  * Persist the annotator playhead for a tab's Chrome session. Survives a page
  * reload (reconnect) but resets when Chrome is relaunched.
  */
@@ -268,7 +310,7 @@ export async function setReplayPosition(tabId: string, position: number): Promis
  * Returns false on any error (unreachable / wedged) so callers treat it as
  * needing recovery.
  */
-async function isRendererHealthy(browserSessionId: string): Promise<boolean> {
+export async function isRendererHealthy(browserSessionId: string): Promise<boolean> {
 	try {
 		const result = await browserApi<{ responsive: boolean }>(
 			'GET',
