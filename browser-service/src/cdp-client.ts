@@ -79,6 +79,13 @@ export class CdpClient {
 	// Timestamp (ms) until which the renderer is assumed wedged; renderer ops
 	// short-circuit while this is in the future. 0 = healthy.
 	private wedgedUntil = 0;
+	// Current top-level document URL, kept current from browser-process
+	// navigation events (Page.frameNavigated / navigatedWithinDocument) and
+	// seeded from the frame tree on connect. Reading it never touches the
+	// renderer's JS thread, so a wedged page can't make getUrl() hang.
+	private currentUrl = '';
+	// Id of the main frame; used to ignore sub-frame navigation events.
+	private mainFrameId: string | null = null;
 
 	constructor(
 		public readonly cdpPort: number,
@@ -153,6 +160,10 @@ export class CdpClient {
 				// dialogs. An unhandled dialog blocks the renderer's main thread,
 				// which stalls screenshots and every other CDP call.
 				this.send('Page.enable').catch(() => {});
+				// Seed the URL cache from the browser process. On reconnect to an
+				// already-loaded page no navigation event fires, so without this the
+				// cache would stay empty until the next navigation.
+				this.seedUrlFromFrameTree().catch(() => {});
 				resolve();
 			});
 
@@ -214,6 +225,31 @@ export class CdpClient {
 			const accept = type === 'beforeunload';
 			console.log(`[CDP] Auto-handling JS dialog (type=${type}, accept=${accept})`);
 			this.send('Page.handleJavaScriptDialog', { accept }).catch(() => {});
+			return;
+		}
+
+		if (method === 'Page.frameNavigated') {
+			// Cross-document navigations (full loads, redirects), sourced from the
+			// browser process. The main frame has no parentId; ignore sub-frames.
+			const frame = params?.frame as
+				| { id?: string; parentId?: string; url?: string }
+				| undefined;
+			if (frame && !frame.parentId) {
+				if (frame.id) this.mainFrameId = frame.id;
+				if (frame.url) this.currentUrl = frame.url;
+			}
+			return;
+		}
+
+		if (method === 'Page.navigatedWithinDocument') {
+			// Same-document navigations (SPA pushState/replaceState, #fragment
+			// changes) don't emit frameNavigated, so capture them here.
+			const url = params?.url as string | undefined;
+			const frameId = params?.frameId as string | undefined;
+			if (url && (this.mainFrameId === null || frameId === this.mainFrameId)) {
+				this.currentUrl = url;
+			}
+			return;
 		}
 	}
 
@@ -481,16 +517,37 @@ export class CdpClient {
 	}
 
 	/**
-	 * Get current URL.
+	 * Get the current top-level URL.
+	 *
+	 * Served from a cache kept current by browser-process navigation events and
+	 * seeded from the frame tree — it never runs anything in the renderer, so a
+	 * wedged page (blocked JS main thread) can't make this hang. This is the hot
+	 * path: it's read before/after every action and by the frontend's URL poll.
 	 */
 	async getUrl(): Promise<string> {
-		return this.rendererOp(async () => {
-			const result = await this.send('Runtime.evaluate', {
-				expression: 'window.location.href',
-				returnByValue: true
-			}) as { result?: { value?: string } };
-			return result?.result?.value || '';
-		});
+		if (!this.currentUrl) {
+			// Not seeded yet (e.g. just reconnected to a loaded page). Pull it from
+			// the browser process once; safe even if the renderer is wedged.
+			await this.seedUrlFromFrameTree();
+		}
+		return this.currentUrl;
+	}
+
+	/**
+	 * Seed the cached URL from the browser process via Page.getFrameTree, which
+	 * is served without touching the renderer's main thread.
+	 */
+	private async seedUrlFromFrameTree(): Promise<void> {
+		try {
+			const result = (await this.send('Page.getFrameTree')) as {
+				frameTree?: { frame?: { id?: string; url?: string } };
+			};
+			const frame = result?.frameTree?.frame;
+			if (frame?.id) this.mainFrameId = frame.id;
+			if (frame?.url) this.currentUrl = frame.url;
+		} catch {
+			// Best-effort; navigation events will populate the cache otherwise.
+		}
 	}
 
 	/**
