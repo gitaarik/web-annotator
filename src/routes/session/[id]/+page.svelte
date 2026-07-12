@@ -1215,34 +1215,6 @@
 				/>
 			{/if}
 
-			{#if actions.length > 0 || screenshotPath}
-				<div class="history-section">
-					<svelte:boundary onerror={(e) => error = `History error: ${getErrorMessage(e)}`}>
-						<SessionHistory
-							{actions}
-							{viewport}
-							currentScreenshot={screenshotPath}
-							{currentUrl}
-							{replayedUpTo}
-							loadingIndex={runningIndex}
-							queuedIndex={queuedReplayIndex}
-							onDelete={handleDeleteAction}
-							{deletingIndex}
-							onHoverAction={(info) => (hoverInfo = info)}
-							selectedIndex={selectedStep}
-							onSelect={handleSelectStep}
-							insertMode={isAddMode}
-							onInsertAt={handleInsertAt}
-							{pendingActionPreview}
-							{screenshotVersion}
-						/>
-						{#snippet failed()}
-							<div class="error">Failed to render session history. Please refresh the page.</div>
-						{/snippet}
-					</svelte:boundary>
-				</div>
-			{/if}
-
 			<div class="main-content">
 				<div class="screenshot-section">
 					{#if browserBusyWaiting}
@@ -1364,6 +1336,33 @@
 						</div>
 					{/if}
 				</div>
+				{#if actions.length > 0 || screenshotPath}
+					<div class="history-section">
+						<svelte:boundary onerror={(e) => error = `History error: ${getErrorMessage(e)}`}>
+							<SessionHistory
+								{actions}
+								{viewport}
+								currentScreenshot={screenshotPath}
+								{currentUrl}
+								{replayedUpTo}
+								loadingIndex={runningIndex}
+								queuedIndex={queuedReplayIndex}
+								onDelete={handleDeleteAction}
+								{deletingIndex}
+								onHoverAction={(info) => (hoverInfo = info)}
+								selectedIndex={selectedStep}
+								onSelect={handleSelectStep}
+								insertMode={isAddMode}
+								onInsertAt={handleInsertAt}
+								{pendingActionPreview}
+								{screenshotVersion}
+							/>
+							{#snippet failed()}
+								<div class="error">Failed to render session history. Please refresh the page.</div>
+							{/snippet}
+						</svelte:boundary>
+					</div>
+				{/if}
 
 				<div class="controls-section">
 					{#if browserLoading}
@@ -1661,10 +1660,20 @@
 	.main-content {
 		display: grid;
 		grid-template-columns: 1fr 350px;
-		gap: var(--space-2xl);
+		grid-template-rows: auto auto;
+		grid-template-areas:
+			'screenshot controls'
+			'history controls';
+		align-items: start;
+		column-gap: var(--space-2xl);
+		row-gap: var(--space-lg);
 	}
 
 	.screenshot-section {
+		grid-area: screenshot;
+		/* min-width:0 lets the history's horizontal scroll stay inside this column
+		   instead of stretching the grid track. */
+		min-width: 0;
 		overflow: auto;
 	}
 
@@ -1913,6 +1922,7 @@
 	}
 
 	.controls-section {
+		grid-area: controls;
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-lg);
@@ -2141,10 +2151,14 @@
 		color: white;
 	}
 
+	/* Now a "filmstrip" under the screenshot (bottom-left of the grid). min-width:0
+	   keeps its horizontal scroll inside the column; the top border separates it
+	   from the canvas above. */
 	.history-section {
-		margin-bottom: var(--space-xl);
-		padding-bottom: var(--space-xl);
-		border-bottom: 1px solid var(--color-border-light);
+		grid-area: history;
+		min-width: 0;
+		padding-top: var(--space-lg);
+		border-top: 1px solid var(--color-border-light);
 	}
 
 	.completed code {
