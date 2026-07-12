@@ -6,7 +6,7 @@
 	import ExplanationInput from '$lib/components/ExplanationInput.svelte';
 	import SessionHistory from '$lib/components/SessionHistory.svelte';
 	import TabBar from '$lib/components/TabBar.svelte';
-	import { type Action, type HoverInfo, type Tab, type DismissEvent, formatAction } from '$lib/types';
+	import { type Action, type HoverInfo, type Tab, type DismissEvent, formatAction, actionToHoverInfo } from '$lib/types';
 	import { apiRequest, getErrorMessage, ApiError } from '$lib/api';
 
 	let { data } = $props();
@@ -62,8 +62,12 @@
 	// Gate playhead persistence until the initial position is restored on mount.
 	let positionSynced = $state(false);
 	let hoverInfo = $state<HoverInfo>(null);
-	let editingActionIndex = $state<number | null>(null);
-	let manualEditMode = $state(false);
+	// The single source of truth for the right-pane inspector's mode:
+	//   selectedStep === null → add mode (compose a new step, inserted at the cursor)
+	//   selectedStep === N    → edit mode for step N
+	// The playhead (replayedUpTo) is the insertion cursor; a new step lands at
+	// replayedUpTo + 1. Selecting a step snaps the cursor to just before it.
+	let selectedStep = $state<number | null>(null);
 	// Inline editing of the session's task/prompt (metadata only).
 	let editingTask = $state(false);
 	let taskDraft = $state('');
@@ -585,6 +589,17 @@
 			if (index <= replayedUpTo) {
 				replayedUpTo = index - 1;
 			}
+
+			// Keep the inspector's selection valid as indices shift beneath it:
+			// deleting the edited step drops back to add mode; deleting one before
+			// it shifts the selection down by one.
+			if (selectedStep !== null) {
+				if (index === selectedStep) {
+					cancelEdit();
+				} else if (index < selectedStep) {
+					selectedStep -= 1;
+				}
+			}
 		} catch (e) {
 			error = getErrorMessage(e);
 		} finally {
@@ -598,9 +613,9 @@
 		navigatingIndex = index;
 		error = null;
 
-		// Clear any edit state first to prevent auto-populating the form
-		manualEditMode = false;
-		editingActionIndex = null;
+		// "Go to result" is a positioning move, not an edit — leave add mode and
+		// clear the form so nothing auto-populates against the new location.
+		selectedStep = null;
 		selectedAction = null;
 		explanation = '';
 		clickCoordinates = null;
@@ -632,7 +647,7 @@
 	}
 
 	async function updateActionHandler() {
-		if (editingActionIndex === null || !session.id || !selectedAction || !explanation.trim()) {
+		if (selectedStep === null || !session.id || !selectedAction || !explanation.trim()) {
 			return;
 		}
 
@@ -654,16 +669,15 @@
 
 		try {
 			const response = await apiRequest<{ session: { actions: Action[] } }>(
-				`/api/sessions/${session.id}/actions/${editingActionIndex}`,
+				`/api/sessions/${session.id}/actions/${selectedStep}`,
 				{ method: 'PATCH', body: actionUpdate }
 			);
 
 			actions = response.session.actions;
-			const startIndex = editingActionIndex;
+			const startIndex = selectedStep;
 
-			// Reset manual edit mode before replaying
-			manualEditMode = false;
-			editingActionIndex = null;
+			// Leave edit mode before replaying
+			selectedStep = null;
 			selectedAction = null;
 			explanation = '';
 			clickCoordinates = null;
@@ -770,10 +784,16 @@
 		}
 	}
 
-	async function handleSelectForEdit(index: number) {
+	async function handleSelectStep(index: number) {
 		const action = actions[index];
-		manualEditMode = true;
-		editingActionIndex = index;
+		if (!action) return;
+		selectedStep = index;
+
+		// Snap the cursor to just before this step so the transport, the "next"
+		// highlight, and the inspector all agree on where we are. Edit re-runs this
+		// step against the live page — positioning the browser to match is the
+		// user's call via the transport (there's no cheap seek).
+		replayedUpTo = index - 1;
 
 		// Reset all action-specific fields first
 		clickCoordinates = null;
@@ -806,8 +826,7 @@
 	}
 
 	function cancelEdit() {
-		manualEditMode = false;
-		editingActionIndex = null;
+		selectedStep = null;
 		selectedAction = null;
 		explanation = '';
 		clickCoordinates = null;
@@ -874,6 +893,12 @@
 		actionLoading = true;
 		error = null;
 
+		// The insertion point is the cursor: just after the playhead. Computed here
+		// (not when the form was submitted) so a queued add lands after the one
+		// before it — each successful add advances replayedUpTo, so the next queued
+		// add reads the updated cursor. At/past the end this is an append.
+		const insertIndex = replayedUpTo + 1;
+
 		// Show preview in history while executing
 		pendingActionPreview = {
 			type: params.actionType,
@@ -895,7 +920,7 @@
 				newTabId?: string;
 			}>('/api/action', {
 				method: 'POST',
-				body: params
+				body: { ...params, insertIndex }
 			});
 
 			screenshotPath = response.screenshotPath;
@@ -907,12 +932,12 @@
 				tabs = response.session.tabs;
 			}
 
-			// The browser is now at the state after this just-recorded action, so
-			// advance the playhead to the new frontier. Keeps replayedUpTo in sync
-			// with the actual browser position (it's the persisted value a reload
-			// restores) — otherwise recording leaves it stale and a refresh shows
-			// the wrong step under a live last-step screenshot.
-			replayedUpTo = actions.length - 1;
+			// The browser is now at the state after this just-recorded action, which
+			// now lives at insertIndex. Advance the playhead onto it so the cursor
+			// sits just after (ready for the next add) and a reload restores here.
+			// For an append this is the last index; for a mid-list insert it's the
+			// inserted position, with the shifted-down steps still ahead.
+			replayedUpTo = insertIndex;
 
 			// Ensure form is cleared after successful action
 			selectedAction = null;
@@ -939,47 +964,55 @@
 		goto('/');
 	}
 
-	// Check if we're in replay edit mode (replaying a session with upcoming actions)
-	// Only active when user has explicitly replayed (replayedUpTo >= 0) and there are more actions
-	let nextActionIndex = $derived(
-		replayedUpTo >= 0 && replayedUpTo < actions.length - 1 ? replayedUpTo + 1 : null
-	);
+	// Inspector mode: editing an existing step vs. composing a new one.
+	let isEditMode = $derived(selectedStep !== null);
+	let isAddMode = $derived(selectedStep === null);
 
-	// Edit mode is active only when user explicitly clicks Edit on an action
-	let isEditMode = $derived(manualEditMode);
+	// The step the transport's "Play next" would run: the playhead's frontier.
+	let nextPlayableIndex = $derived(replayedUpTo + 1 < actions.length ? replayedUpTo + 1 : null);
 
-	// Adding new action mode - not editing any existing action
-	let isAddingNew = $derived(!isEditMode && !actionLoading && !replayLoading);
-
-	function handleAddNew() {
-		// Clear any edit state and prepare for adding a new action
-		manualEditMode = false;
-		editingActionIndex = null;
-		replayedUpTo = -1; // Exit replay mode to enable "add new" mode
-		selectedAction = null;
-		explanation = '';
-		clickCoordinates = null;
-		typeText = '';
+	// Move the cursor to `pos` and drop into add mode, so the next Execute inserts
+	// a step there. pos ranges 0..actions.length (end = append).
+	function handleInsertAt(pos: number) {
+		cancelEdit(); // leave any edit and clear the form
+		replayedUpTo = pos - 1; // cursor sits at pos
 		error = null;
 	}
 
-	function handleActivate(index: number) {
-		// Force-activate a history position to recover from stuck states
-		// Set to index - 1 so the selected action becomes the next playable one
-		replayedUpTo = index - 1;
-		// Clear any loading states that might be stuck
+	// Transport: run the next recorded step against the live browser, advancing the
+	// playhead by one.
+	function handlePlayNext() {
+		if (nextPlayableIndex === null) return;
+		handleReplayAction(nextPlayableIndex);
+	}
+
+	// Hovering "Play next" previews where it will act — the next step's marker on the
+	// live screenshot — mirroring the old per-card play hover. On leave, keep a
+	// mid-replay overlay if one is running, otherwise clear.
+	function previewNextAction() {
+		if (nextPlayableIndex === null) return;
+		const action = actions[nextPlayableIndex];
+		if (action) hoverInfo = actionToHoverInfo(action);
+	}
+
+	function clearNextPreview() {
+		if (replayLoading && replayedUpTo >= 0 && actions[replayedUpTo]) {
+			hoverInfo = actionToHoverInfo(actions[replayedUpTo]);
+		} else {
+			hoverInfo = null;
+		}
+	}
+
+	// Recovery: treat every recorded step as done with the live browser as the
+	// current position. Used when the marker has drifted behind the live page.
+	function handleSyncToLatest() {
+		replayedUpTo = actions.length - 1;
 		actionLoading = false;
 		replayLoading = false;
 		pendingAction = null;
 		pendingActionPreview = null;
 		stopScreenshotPolling();
-		// Clear edit state
-		manualEditMode = false;
-		editingActionIndex = null;
-		selectedAction = null;
-		explanation = '';
-		clickCoordinates = null;
-		typeText = '';
+		cancelEdit();
 		error = null;
 	}
 
@@ -1027,8 +1060,7 @@
 			restartNotice = false;
 
 			// Clear transient action/edit state so the reset is clean.
-			manualEditMode = false;
-			editingActionIndex = null;
+			selectedStep = null;
 			selectedAction = null;
 			explanation = '';
 			clickCoordinates = null;
@@ -1043,17 +1075,6 @@
 		}
 	}
 
-	// Clear form when exiting manual edit mode
-	$effect(() => {
-		if (!manualEditMode && editingActionIndex !== null) {
-			editingActionIndex = null;
-			selectedAction = null;
-			explanation = '';
-			clickCoordinates = null;
-			typeText = '';
-		}
-	});
-
 	let canExecute = $derived(
 		selectedAction !== null &&
 			explanation.trim() !== '' &&
@@ -1064,6 +1085,12 @@
 	// Dismiss only needs a target point — explanation is optional (it's not a step).
 	let canDismiss = $derived(selectedAction === 'dismiss' && clickCoordinates !== null);
 
+	// Where an added step will land (the cursor), for the add-mode header.
+	let insertPosition = $derived(replayedUpTo + 1);
+	let insertLabel = $derived(
+		insertPosition >= actions.length ? 'at the end' : `before step #${insertPosition}`
+	);
+
 	// Only disable buttons if there's already a pending action queued (allow one queue)
 	let isLoading = $derived(actionLoading || tabLoading || pendingAction !== null);
 
@@ -1071,7 +1098,7 @@
 	// coordinates you place must land on the same screenshot the action will run
 	// against, and replaySingleAction executes against the current browser state,
 	// not the recorded snapshot. Showing the old snapshot here would let you click
-	// on one image while the action fires against another. (handleSelectForEdit
+	// on one image while the action fires against another. (handleSelectStep
 	// refreshes screenshotPath on entry so this reflects the true current state.)
 	let displayScreenshot = $derived(screenshotPath);
 
@@ -1193,20 +1220,16 @@
 							currentScreenshot={screenshotPath}
 							{currentUrl}
 							{replayedUpTo}
-							onReplay={handleReplayAction}
 							loadingIndex={replayLoading ? replayedUpTo : null}
 							queuedIndex={queuedReplayIndex}
 							onDelete={handleDeleteAction}
 							{deletingIndex}
 							onHoverAction={(info) => (hoverInfo = info)}
-							editingIndex={editingActionIndex}
-							onSelectForEdit={handleSelectForEdit}
-							{isAddingNew}
-							onAddNew={handleAddNew}
-							onNavigateTo={handleNavigateTo}
-							{navigatingIndex}
+							selectedIndex={selectedStep}
+							onSelect={handleSelectStep}
+							insertMode={isAddMode}
+							onInsertAt={handleInsertAt}
 							{pendingActionPreview}
-							onActivate={handleActivate}
 							{screenshotVersion}
 						/>
 						{#snippet failed()}
@@ -1248,10 +1271,10 @@
 							</div>
 						</div>
 					{:else if displayScreenshot}
-						<div class="screenshot-wrapper" class:editing-mode={manualEditMode} class:action-running={showLoadingIndicator}>
-							{#if manualEditMode && editingActionIndex !== null}
+						<div class="screenshot-wrapper" class:editing-mode={isEditMode} class:action-running={showLoadingIndicator}>
+							{#if selectedStep !== null}
 								<div class="editing-banner">
-									Editing Action #{editingActionIndex}
+									Editing Step #{selectedStep}
 								</div>
 							{/if}
 							<svelte:boundary onerror={(e) => error = `Screenshot error: ${getErrorMessage(e)}`}>
@@ -1287,35 +1310,67 @@
 							{/if}
 						</div>
 						<div class="screenshot-toolbar">
-							{#if clickCoordinates && (selectedAction === 'click' || selectedAction === 'hover' || selectedAction === 'dismiss')}
-								<span class="coordinates">Selected: ({clickCoordinates.x}, {clickCoordinates.y})</span>
+							{#if actions.length > 0}
+								<div class="transport">
+									<button
+										class="toolbar-btn transport-play"
+										onclick={handlePlayNext}
+										onmouseenter={previewNextAction}
+										onmouseleave={clearNextPreview}
+										onfocus={previewNextAction}
+										onblur={clearNextPreview}
+										disabled={nextPlayableIndex === null || replayLoading || actionLoading}
+										title={nextPlayableIndex === null
+											? 'Already at the latest step'
+											: `Play step #${nextPlayableIndex} against the live browser`}
+									>
+										{replayLoading ? '…' : '▶'} Play next
+									</button>
+									<span class="position-readout" title="Playhead position">
+										Step {replayedUpTo + 1} / {actions.length}
+									</span>
+									{#if replayedUpTo < actions.length - 1}
+										<button
+											class="toolbar-btn sync-btn"
+											onclick={handleSyncToLatest}
+											title="Mark every recorded step as done, with the live browser as the current position"
+										>
+											⇥ Sync to latest
+										</button>
+									{/if}
+								</div>
 							{/if}
-							<div class="toolbar-buttons">
-								{#if !manualEditMode}
+							<div class="toolbar-right">
+								{#if clickCoordinates && (selectedAction === 'click' || selectedAction === 'hover' || selectedAction === 'dismiss')}
+									<span class="coordinates">Selected: ({clickCoordinates.x}, {clickCoordinates.y})</span>
+								{/if}
+								<div class="toolbar-buttons">
+									{#if isAddMode}
+										<button
+											class="toolbar-btn"
+											onclick={handleRefreshScreenshot}
+											disabled={refreshLoading}
+											title="Refresh screenshot"
+										>
+											{refreshLoading ? '...' : '↻'} Refresh
+										</button>
+									{/if}
 									<button
 										class="toolbar-btn"
-										onclick={handleRefreshScreenshot}
-										disabled={refreshLoading}
-										title="Refresh screenshot"
+										onclick={handleExportSession}
+										title="Export session as JSON"
 									>
-										{refreshLoading ? '...' : '↻'} Refresh
+										↓ Export
 									</button>
-								{/if}
-								<button
-									class="toolbar-btn"
-									onclick={handleExportSession}
-									title="Export session as JSON"
-								>
-									↓ Export
-								</button>
-								<button
-									class="toolbar-btn restart-btn"
-									onclick={handleRestart}
-									disabled={browserLoading || actionLoading || replayLoading}
-									title="Restart the browser from the first step (recorded steps are kept)"
-								>
-									↺ Restart
-								</button>
+									<button
+										class="toolbar-btn restart-btn"
+										onclick={handleRestart}
+										disabled={browserLoading || actionLoading || replayLoading}
+										title="Restart the browser from the first step (recorded steps are kept)"
+									>
+										↺ Restart
+									</button>
+								</div>
 							</div>
 						</div>
 					{:else}
@@ -1331,6 +1386,22 @@
 							<p>Waiting for browser...</p>
 						</div>
 					{:else}
+						<div class="inspector-header" class:editing={isEditMode}>
+							{#if isEditMode}
+								<span class="inspector-title">
+									<span class="inspector-dot editing"></span>
+									Editing step #{selectedStep}
+								</span>
+								<button class="inspector-cancel" onclick={cancelEdit}>Cancel</button>
+							{:else}
+								<span class="inspector-title">
+									<span class="inspector-dot adding"></span>
+									Add step
+								</span>
+								<span class="inspector-sub">inserts {insertLabel}</span>
+							{/if}
+						</div>
+
 						<ActionPanel
 							{selectedAction}
 							{scrollDirection}
@@ -1341,8 +1412,6 @@
 							}}
 							onscrolldirectionchange={(d) => (scrollDirection = d)}
 							ontextchange={(t) => (typeText = t)}
-							isEditing={manualEditMode}
-							onCancelEdit={cancelEdit}
 						/>
 
 						<ExplanationInput
@@ -1354,10 +1423,33 @@
 								: 'Explain why you are taking this action...'}
 						/>
 
-						{#if isEditMode}
+						{#if isEditMode && selectedStep !== null}
+							{@const idx = selectedStep}
+							{@const step = actions[idx]}
 							<button class="update-btn" onclick={updateActionHandler} disabled={isLoading || !canExecute}>
-								{isLoading ? 'Running...' : 'Update & Run Action'}
+								{isLoading ? 'Running...' : 'Update & Run'}
 							</button>
+							<div class="inspector-actions">
+								{#if step && step.afterUrl && step.afterUrl !== step.url}
+									{@const resultUrl = step.afterUrl}
+									<button
+										class="inspector-secondary-btn"
+										onclick={() => handleNavigateTo(idx, resultUrl)}
+										disabled={navigatingIndex !== null}
+										title="Move the live browser to where this step ended"
+									>
+										{navigatingIndex === idx ? 'Going…' : '↗ Go to result'}
+									</button>
+								{/if}
+								<button
+									class="inspector-danger-btn"
+									onclick={() => handleDeleteAction(idx)}
+									disabled={deletingIndex !== null}
+									title="Delete this step"
+								>
+									{deletingIndex === idx ? 'Deleting…' : '× Delete step'}
+								</button>
+							</div>
 						{:else if selectedAction === 'dismiss'}
 							<button class="dismiss-btn" onclick={handleDismiss} disabled={isLoading || !canDismiss}>
 								{isLoading ? 'Dismissing...' : 'Dismiss popup'}
@@ -1819,10 +1911,151 @@
 		color: var(--color-text-muted);
 	}
 
+	/* Transport: the single playhead control set, replacing the per-card Play. */
+	.transport {
+		display: flex;
+		align-items: center;
+		gap: var(--space-sm);
+	}
+
+	.transport-play {
+		font-weight: 600;
+		color: var(--color-success);
+		border-color: var(--color-success);
+	}
+
+	.transport-play:hover:not(:disabled) {
+		background: var(--color-success-bg);
+	}
+
+	.position-readout {
+		font-size: 0.8rem;
+		color: var(--color-text-muted);
+		white-space: nowrap;
+	}
+
+	.toolbar-btn.sync-btn {
+		color: var(--color-warning-text, #92400e);
+		border-color: var(--color-warning, #f59e0b);
+	}
+
+	.toolbar-btn.sync-btn:hover:not(:disabled) {
+		background: var(--color-warning-bg, #fef3c7);
+	}
+
+	.toolbar-right {
+		display: flex;
+		align-items: center;
+		gap: var(--space-md);
+		margin-left: auto;
+	}
+
 	.controls-section {
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-lg);
+	}
+
+	/* Inspector header: names the mode (Add vs Edit) and, in add mode, the spot the
+	   new step will land. Ties the right pane to the timeline's cursor. */
+	.inspector-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-sm);
+		padding: var(--space-sm) var(--space-md);
+		border-radius: var(--radius-md);
+		background: var(--color-bg-tertiary);
+		border-left: 3px solid var(--color-success);
+	}
+
+	.inspector-header.editing {
+		border-left-color: var(--color-purple);
+		background: var(--color-purple-light, var(--color-bg-tertiary));
+	}
+
+	.inspector-title {
+		display: flex;
+		align-items: center;
+		gap: var(--space-sm);
+		font-weight: 600;
+		font-size: 0.95rem;
+		color: var(--color-text-secondary);
+	}
+
+	.inspector-dot {
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		flex-shrink: 0;
+	}
+
+	.inspector-dot.adding {
+		background: var(--color-success);
+	}
+
+	.inspector-dot.editing {
+		background: var(--color-purple);
+	}
+
+	.inspector-sub {
+		font-size: 0.8rem;
+		color: var(--color-text-muted);
+	}
+
+	.inspector-cancel {
+		padding: 0.3rem 0.7rem;
+		font-size: 0.8rem;
+		background: var(--color-bg-white);
+		color: var(--color-text-secondary);
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-sm);
+	}
+
+	.inspector-cancel:hover {
+		background: var(--color-bg-secondary);
+	}
+
+	.inspector-actions {
+		display: flex;
+		gap: var(--space-sm);
+	}
+
+	.inspector-secondary-btn,
+	.inspector-danger-btn {
+		flex: 1;
+		padding: var(--space-sm) var(--space-md);
+		font-size: 0.9rem;
+		font-weight: 500;
+		border-radius: var(--radius-md);
+		cursor: pointer;
+	}
+
+	.inspector-secondary-btn {
+		background: var(--color-bg-tertiary);
+		color: var(--color-text-secondary);
+		border: 1px solid var(--color-border);
+	}
+
+	.inspector-secondary-btn:hover:not(:disabled) {
+		background: var(--color-bg-secondary);
+	}
+
+	.inspector-danger-btn {
+		background: var(--color-bg-tertiary);
+		color: var(--color-danger, #ef4444);
+		border: 1px solid var(--color-danger, #ef4444);
+	}
+
+	.inspector-danger-btn:hover:not(:disabled) {
+		background: var(--color-danger, #ef4444);
+		color: white;
+	}
+
+	.inspector-secondary-btn:disabled,
+	.inspector-danger-btn:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
 	}
 
 	.controls-placeholder {

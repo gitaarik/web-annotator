@@ -98,12 +98,20 @@ export async function updateSession(
 
 export async function addAction(
 	sessionId: string,
-	action: Action
+	action: Action,
+	insertIndex?: number
 ): Promise<AnnotationSession | null> {
 	const session = await getSession(sessionId);
 	if (!session) return null;
 
-	session.actions.push(action);
+	// Insert at the playhead when a valid in-range index is given; otherwise append.
+	// An index at (or past) the end falls through to a push, so "add at the end" and
+	// "insert in the middle" share one path.
+	if (typeof insertIndex === 'number' && insertIndex >= 0 && insertIndex < session.actions.length) {
+		session.actions.splice(insertIndex, 0, action);
+	} else {
+		session.actions.push(action);
+	}
 
 	if (action.type === 'stop') {
 		session.finalAnswer = action.explanation;

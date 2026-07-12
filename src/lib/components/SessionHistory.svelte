@@ -30,18 +30,20 @@
 		currentScreenshot?: string | null;
 		currentUrl?: string | null;
 		replayedUpTo?: number;
-		onReplay?: (index: number) => void;
 		loadingIndex?: number | null;
 		queuedIndex?: number | null;
 		onDelete?: (index: number) => void;
 		deletingIndex?: number | null;
 		onHoverAction?: (info: HoverInfo) => void;
-		editingIndex?: number | null;
-		onSelectForEdit?: (index: number) => void;
-		isAddingNew?: boolean;
-		onAddNew?: () => void;
-		onNavigateTo?: (index: number, url: string) => void;
-		navigatingIndex?: number | null;
+		// Which step is open in the right-pane inspector (edit mode). null = add mode.
+		selectedIndex?: number | null;
+		// Click a card to open it for editing.
+		onSelect?: (index: number) => void;
+		// Right pane is in add mode: show the insertion cursor in the strip.
+		insertMode?: boolean;
+		// Insert a new step at position `index` (0..actions.length). Moves the cursor
+		// there and puts the inspector in add mode.
+		onInsertAt?: (index: number) => void;
 		pendingActionPreview?: {
 			type: string;
 			explanation: string;
@@ -49,7 +51,6 @@
 			direction?: 'up' | 'down';
 			text?: string;
 		} | null;
-		onActivate?: (index: number) => void;
 		screenshotVersion?: number;
 	}
 
@@ -59,22 +60,23 @@
 		currentScreenshot = null,
 		currentUrl = null,
 		replayedUpTo = -1,
-		onReplay,
 		loadingIndex = null,
 		queuedIndex = null,
 		onDelete,
 		deletingIndex = null,
 		onHoverAction,
-		editingIndex = null,
-		onSelectForEdit,
-		isAddingNew = false,
-		onAddNew,
-		onNavigateTo,
-		navigatingIndex = null,
+		selectedIndex = null,
+		onSelect,
+		insertMode = false,
+		onInsertAt,
 		pendingActionPreview = null,
-		onActivate,
 		screenshotVersion = 0
 	}: Props = $props();
+
+	// The insertion cursor sits just after the playhead — that's where a new step
+	// lands (matches the server's insertIndex = replayedUpTo + 1). Only shown while
+	// the inspector is in add mode.
+	let cursorPosition = $derived(replayedUpTo + 1);
 
 	// Add cache-busting query param to screenshot URLs
 	function versionedSrc(src: string): string;
@@ -85,11 +87,6 @@
 		return `${src}${separator}v=${screenshotVersion}`;
 	}
 
-	function canReplay(index: number): boolean {
-		// Can replay if it's the next action and there's no queued action yet
-		return onReplay !== undefined && index === replayedUpTo + 1 && queuedIndex === null;
-	}
-
 	function isLoading(index: number): boolean {
 		return loadingIndex === index;
 	}
@@ -98,21 +95,13 @@
 		return queuedIndex === index;
 	}
 
-	// Show queue icon when something is loading and this is the next playable action
-	function showAsQueueButton(index: number): boolean {
-		return loadingIndex !== null && index === replayedUpTo + 1 && queuedIndex === null;
-	}
-
 	function isReplayed(index: number): boolean {
 		return index <= replayedUpTo;
 	}
 
+	// The next step the transport would play (the playhead's frontier).
 	function isNextPlayable(index: number): boolean {
-		return onReplay !== undefined && index === replayedUpTo + 1;
-	}
-
-	function isNavigating(index: number): boolean {
-		return navigatingIndex === index;
+		return index === replayedUpTo + 1;
 	}
 
 	// Check if this action caused navigation (has afterUrl different from url)
@@ -120,16 +109,6 @@
 		const action = actions[index];
 		if (!action?.afterUrl) return false;
 		return action.afterUrl !== action.url;
-	}
-
-	function canNavigateTo(index: number): boolean {
-		// Can navigate if action caused navigation and no other navigation is in progress
-		return (
-			onNavigateTo !== undefined &&
-			causedNavigation(index) &&
-			loadingIndex === null &&
-			navigatingIndex === null
-		);
 	}
 
 	let isHoveringNextAction = $state(false);
@@ -224,8 +203,7 @@
 
 	// Follow the playhead as actions are executed: reveal the next action as you
 	// step forward, and only jump fully right at the last step (to show "Now") or
-	// while recording a new action. Driven by replayedUpTo rather than the
-	// overloaded isAddingNew flag, which also flips true when a replay finishes.
+	// while recording a new action. Driven by replayedUpTo and the pending preview.
 	$effect(() => {
 		const currentReplayed = replayedUpTo;
 		const hasPending = pendingActionPreview !== null;
@@ -282,25 +260,80 @@
 
 	<div class="actions-list" bind:this={actionsListEl}>
 		{#each actions as action, index}
+			{#if onInsertAt}
+				<button
+					class="insert-gap"
+					class:cursor={insertMode && cursorPosition === index}
+					onclick={() => onInsertAt(index)}
+					title="Insert a step here"
+					aria-label="Insert a step before #{index}"
+				>
+					<span class="insert-gap-plus">+</span>
+				</button>
+			{/if}
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<!-- svelte-ignore a11y_click_events_have_key_events -->
+			<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 			<div
 				class="action-item"
+				class:selectable={!!onSelect}
 				data-action-index={index}
 				class:replayed={isReplayed(index)}
 				class:next-playable={isNextPlayable(index)}
-				class:editing={editingIndex === index}
+				class:editing={selectedIndex === index}
+				role={onSelect ? 'button' : undefined}
+				tabindex={onSelect ? 0 : undefined}
+				onclick={() => onSelect?.(index)}
+				onkeydown={(e) => {
+					if (onSelect && (e.key === 'Enter' || e.key === ' ')) {
+						e.preventDefault();
+						onSelect(index);
+					}
+				}}
 				onmouseenter={() => handleMouseEnter(action, index)}
 				onmouseleave={handleMouseLeave}
 			>
 				<div class="action-top">
-					<span class="action-number">#{index}</span>
+					<span class="action-ident">
+						<span
+							class="status-dot"
+							class:done={isReplayed(index)}
+							class:next={isNextPlayable(index)}
+							class:editing={selectedIndex === index}
+						></span>
+						<span class="action-number">#{index}</span>
+					</span>
+					<span class="action-top-right">
+						{#if isLoading(index)}
+							<span class="spinner card-spinner"></span>
+						{:else if isQueued(index)}
+							<span class="card-badge">queued</span>
+						{/if}
+						{#if onDelete}
+							<button
+								class="card-delete"
+								class:loading={deletingIndex === index}
+								onclick={(e) => {
+									e.stopPropagation();
+									onDelete(index);
+								}}
+								disabled={deletingIndex !== null}
+								title="Delete this step"
+								aria-label="Delete step #{index}"
+							>
+								{#if deletingIndex === index}
+									<span class="spinner"></span>
+								{:else}
+									×
+								{/if}
+							</button>
+						{/if}
+					</span>
 				</div>
 				{#if action.screenshotPath}
-					<button
+					<div
 						class="screenshot-thumbnail"
 						style="aspect-ratio: {viewport.width} / {viewport.height};"
-						onclick={() => expandedAction = action}
-						title="Click to enlarge"
 					>
 						<img src={versionedSrc(action.screenshotPath)} alt="Screenshot for action {index}" />
 						{#if action.type === 'click' && action.coordinates}
@@ -315,14 +348,30 @@
 						{:else if action.type === 'type'}
 							<div class="thumbnail-type-marker">⌨</div>
 						{/if}
-					</button>
+						<button
+							class="enlarge-btn"
+							onclick={(e) => {
+								e.stopPropagation();
+								expandedAction = action;
+							}}
+							title="Enlarge screenshot"
+							aria-label="Enlarge screenshot for step #{index}"
+						>⤢</button>
+					</div>
 				{/if}
 				<div class="action-type">{formatAction(action)}</div>
 				<div class="action-explanation">{action.explanation}</div>
 				<div class="action-url-container">
 					{#if action.url}
 						{@const urlParts = formatUrlParts(action.url)}
-						<a class="action-url" href={action.url} target="_blank" rel="noopener noreferrer" title={action.url}>
+						<a
+							class="action-url"
+							href={action.url}
+							target="_blank"
+							rel="noopener noreferrer"
+							title={action.url}
+							onclick={(e) => e.stopPropagation()}
+						>
 							<span class="url-line">{urlParts.line1}</span>
 							{#if urlParts.line2}
 								<span class="url-line">{urlParts.line2}</span>
@@ -330,7 +379,10 @@
 						</a>
 						<button
 							class="copy-url-btn"
-							onclick={() => copyUrl(action.url)}
+							onclick={(e) => {
+								e.stopPropagation();
+								copyUrl(action.url);
+							}}
 							title={copiedUrl === action.url ? 'Copied!' : 'Copy URL'}
 						>
 							{#if copiedUrl === action.url}
@@ -344,7 +396,10 @@
 				{#if action.afterUrl || (action.redirects && action.redirects.length > 0)}
 					<button
 						class="navigation-badge"
-						onclick={() => detailsAction = { index, action }}
+						onclick={(e) => {
+							e.stopPropagation();
+							detailsAction = { index, action };
+						}}
 						title="View navigation details"
 					>
 						{#if action.redirects && action.redirects.length > 0}
@@ -354,87 +409,20 @@
 						{/if}
 					</button>
 				{/if}
-				{#if onReplay || onDelete || onSelectForEdit || onNavigateTo || onActivate}
-					<div class="action-buttons">
-						<div class="button-row">
-							{#if onReplay}
-								<button
-									class="play-action-btn"
-									class:loading={isLoading(index)}
-									class:queued={isQueued(index)}
-									class:will-queue={showAsQueueButton(index)}
-									onclick={() => onReplay(index)}
-									disabled={!canReplay(index)}
-									title={isLoading(index) ? 'Running...' : isQueued(index) ? 'Queued' : showAsQueueButton(index) ? 'Click to queue' : isReplayed(index) ? 'Already played' : canReplay(index) ? 'Play action' : 'Play previous actions first'}
-								>
-									{#if isLoading(index)}
-										<span class="spinner"></span>
-									{:else if isQueued(index)}
-										⏳
-									{:else if showAsQueueButton(index)}
-										+▶
-									{:else if isReplayed(index)}
-										✓
-									{:else}
-										▶
-									{/if}
-								</button>
-							{/if}
-							{#if onNavigateTo && causedNavigation(index)}
-								<button
-									class="navigate-action-btn"
-									class:loading={isNavigating(index)}
-									onclick={() => onNavigateTo(index, actions[index].afterUrl!)}
-									disabled={!canNavigateTo(index)}
-									title={isNavigating(index) ? 'Navigating...' : `Navigate to result URL`}
-								>
-									{#if isNavigating(index)}
-										<span class="spinner"></span>
-									{:else}
-										↗
-									{/if}
-								</button>
-							{/if}
-							{#if onActivate && index !== replayedUpTo}
-								<button
-									class="activate-action-btn"
-									onclick={() => onActivate(index)}
-									title="Activate this position (continue from here)"
-								>
-									⎋
-								</button>
-							{/if}
-						</div>
-						<div class="button-row">
-							{#if onSelectForEdit && editingIndex !== index}
-								<button
-									class="edit-action-btn"
-									onclick={() => onSelectForEdit(index)}
-									title="Edit this action"
-								>
-									✎
-								</button>
-							{/if}
-							{#if onDelete}
-								<button
-									class="delete-action-btn"
-									class:loading={deletingIndex === index}
-									onclick={() => onDelete(index)}
-									disabled={deletingIndex !== null}
-									title="Delete this action"
-								>
-									{#if deletingIndex === index}
-										<span class="spinner"></span>
-									{:else}
-										×
-									{/if}
-								</button>
-							{/if}
-						</div>
-					</div>
-				{/if}
 			</div>
 		{/each}
+
+		{#if onInsertAt && actions.length > 0}
+			<button
+				class="insert-gap"
+				class:cursor={insertMode && cursorPosition === actions.length}
+				onclick={() => onInsertAt(actions.length)}
+				title="Add a step at the end"
+				aria-label="Add a step at the end"
+			>
+				<span class="insert-gap-plus">+</span>
+			</button>
+		{/if}
 
 		{#if pendingActionPreview}
 			<div class="action-item pending-action">
@@ -464,30 +452,66 @@
 		{/if}
 
 		{#if currentScreenshot && !pendingActionPreview}
-			<div class="action-item current-state" class:adding={isAddingNew}>
+			{@const addingAtEnd = insertMode && cursorPosition >= actions.length}
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<!-- svelte-ignore a11y_click_events_have_key_events -->
+			<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+			<div
+				class="action-item current-state"
+				class:adding={addingAtEnd}
+				class:selectable={!!onInsertAt}
+				role={onInsertAt ? 'button' : undefined}
+				tabindex={onInsertAt ? 0 : undefined}
+				onclick={() => onInsertAt?.(actions.length)}
+				onkeydown={(e) => {
+					if (onInsertAt && (e.key === 'Enter' || e.key === ' ')) {
+						e.preventDefault();
+						onInsertAt(actions.length);
+					}
+				}}
+			>
 				<div class="action-top">
-					<span class="action-number">Now</span>
+					<span class="action-ident">
+						<span class="status-dot live"></span>
+						<span class="action-number">Now</span>
+					</span>
 				</div>
-				<button
+				<div
 					class="screenshot-thumbnail"
 					style="aspect-ratio: {viewport.width} / {viewport.height};"
-					onclick={() => expandedScreenshotSrc = currentScreenshot}
-					title="Click to enlarge"
 				>
 					<img src={versionedSrc(currentScreenshot)} alt="Current state" />
-				</button>
-				<div class="action-type">Current State</div>
+					<button
+						class="enlarge-btn"
+						onclick={(e) => {
+							e.stopPropagation();
+							expandedScreenshotSrc = currentScreenshot;
+						}}
+						title="Enlarge screenshot"
+						aria-label="Enlarge current state"
+					>⤢</button>
+				</div>
+				<div class="action-type">Live browser</div>
 				<div class="action-explanation">
-					{#if isAddingNew}
-						Adding new action...
+					{#if addingAtEnd}
+						Adding a step here…
+					{:else if onInsertAt}
+						Current page — click to add a step
 					{:else}
-						Waiting for next action...
+						Current page
 					{/if}
 				</div>
 				<div class="action-url-container">
 					{#if currentUrl}
 						{@const urlParts = formatUrlParts(currentUrl)}
-						<a class="action-url" href={currentUrl} target="_blank" rel="noopener noreferrer" title={currentUrl}>
+						<a
+							class="action-url"
+							href={currentUrl}
+							target="_blank"
+							rel="noopener noreferrer"
+							title={currentUrl}
+							onclick={(e) => e.stopPropagation()}
+						>
 							<span class="url-line">{urlParts.line1}</span>
 							{#if urlParts.line2}
 								<span class="url-line">{urlParts.line2}</span>
@@ -495,7 +519,10 @@
 						</a>
 						<button
 							class="copy-url-btn"
-							onclick={() => copyUrl(currentUrl)}
+							onclick={(e) => {
+								e.stopPropagation();
+								copyUrl(currentUrl);
+							}}
 							title={copiedUrl === currentUrl ? 'Copied!' : 'Copy URL'}
 						>
 							{#if copiedUrl === currentUrl}
@@ -506,28 +533,6 @@
 						</button>
 					{/if}
 				</div>
-				{#if (onActivate && replayedUpTo < actions.length - 1) || (onAddNew && !isAddingNew)}
-					<div class="action-buttons">
-						{#if onActivate && replayedUpTo < actions.length - 1}
-							<button
-								class="sync-here-btn"
-								onclick={() => onActivate(actions.length)}
-								title="Move the history marker here — treat every recorded step as done, with the live browser as the current position"
-							>
-								⇥ Sync to here
-							</button>
-						{/if}
-						{#if onAddNew && !isAddingNew}
-							<button
-								class="add-action-btn"
-								onclick={onAddNew}
-								title="Add a new action"
-							>
-								+ Add
-							</button>
-						{/if}
-					</div>
-				{/if}
 			</div>
 		{/if}
 	</div>
@@ -754,6 +759,14 @@
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
+		min-height: 18px;
+	}
+
+	.action-ident {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+		min-width: 0;
 	}
 
 	.action-number {
@@ -762,22 +775,87 @@
 		font-size: 0.75rem;
 	}
 
-	.action-buttons {
-		display: flex;
-		flex-direction: column;
-		gap: 0.35rem;
-		margin-top: auto;
-		padding-top: 0.5rem;
-		min-height: 60px; /* Space for 2 rows of buttons */
+	/* Status dot mirrors the card's border-top state, but reads at a glance even
+	   when the card is scrolled tight against its neighbours. */
+	.status-dot {
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		background: var(--color-primary);
+		flex-shrink: 0;
 	}
 
-	.button-row {
-		display: flex;
-		gap: 0.35rem;
+	.status-dot.done {
+		background: var(--color-success);
 	}
 
-	.button-row:empty {
-		display: none;
+	.status-dot.next {
+		background: var(--color-warning);
+	}
+
+	.status-dot.editing {
+		background: var(--color-purple);
+	}
+
+	.status-dot.live {
+		background: var(--color-cyan);
+	}
+
+	.action-top-right {
+		display: flex;
+		align-items: center;
+		gap: 0.25rem;
+		flex-shrink: 0;
+	}
+
+	.card-badge {
+		font-size: 0.6rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.02em;
+		color: var(--color-warning-text, #92400e);
+		background: var(--color-warning-bg, #fef3c7);
+		border-radius: 3px;
+		padding: 0.05rem 0.25rem;
+	}
+
+	.card-spinner {
+		border-color: var(--color-border);
+		border-top-color: var(--color-primary);
+	}
+
+	/* Quick delete — hover-revealed so the lean cards stay uncluttered; the full
+	   delete also lives in the inspector's edit mode. */
+	.card-delete {
+		width: 18px;
+		height: 18px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border: none;
+		border-radius: 3px;
+		background: transparent;
+		color: var(--color-text-muted);
+		font-size: 1rem;
+		line-height: 1;
+		cursor: pointer;
+		opacity: 0;
+		transition: opacity 0.15s, background 0.15s, color 0.15s;
+	}
+
+	.action-item:hover .card-delete,
+	.action-item:focus-within .card-delete {
+		opacity: 0.7;
+	}
+
+	.card-delete:hover:not(:disabled) {
+		opacity: 1;
+		background: var(--color-danger, #ef4444);
+		color: white;
+	}
+
+	.card-delete:disabled {
+		cursor: not-allowed;
 	}
 
 	.action-type {
@@ -850,173 +928,94 @@
 		color: var(--color-text-secondary);
 	}
 
-	.play-action-btn {
-		flex: 1;
-		padding: 0.4rem 0.5rem;
-		font-size: 0.85rem;
-		background: var(--color-success);
-		color: white;
-		border: none;
-		border-radius: 4px;
+	/* Clickable card = open in the inspector for editing. */
+	.action-item.selectable {
 		cursor: pointer;
+		transition: box-shadow 0.15s, border-color 0.15s;
+	}
+
+	.action-item.selectable:hover {
+		box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+	}
+
+	.action-item.selectable:focus-visible {
+		outline: 2px solid var(--color-primary);
+		outline-offset: 2px;
+	}
+
+	/* Slim seam between cards: click to insert a step there. The "+" and the
+	   active-cursor tint only show on hover / when the insertion point is here. */
+	.insert-gap {
+		align-self: stretch;
+		flex-shrink: 0;
+		width: 16px;
+		min-height: 120px;
+		margin: 0 -3px;
+		padding: 0;
+		border: none;
+		background: transparent;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		min-height: 28px;
-	}
-
-	.play-action-btn:hover:not(:disabled) {
-		background: var(--color-success-hover);
-	}
-
-	.play-action-btn:disabled {
-		background: var(--color-disabled);
-		cursor: not-allowed;
-	}
-
-	.play-action-btn.queued {
-		background: var(--color-warning, #f59e0b);
-	}
-
-	.play-action-btn.queued:hover:not(:disabled) {
-		background: var(--color-warning-hover, #d97706);
-	}
-
-	.play-action-btn.will-queue {
-		background: var(--color-info, #3b82f6);
-	}
-
-	.play-action-btn.will-queue:hover:not(:disabled) {
-		background: var(--color-info-hover, #2563eb);
-	}
-
-	.edit-action-btn {
-		flex: 1;
-		padding: 0.4rem 0.5rem;
-		font-size: 0.85rem;
-		background: var(--color-purple);
-		color: white;
-		border: none;
-		border-radius: 4px;
 		cursor: pointer;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		min-height: 28px;
-	}
-
-	.edit-action-btn:hover {
-		background: var(--color-purple-hover);
-	}
-
-	.activate-action-btn {
-		flex: 1;
-		padding: 0.4rem 0.5rem;
-		font-size: 0.85rem;
-		background: var(--color-text-muted);
-		color: white;
-		border: none;
+		color: var(--color-primary);
 		border-radius: 4px;
-		cursor: pointer;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		min-height: 28px;
+		transition: background 0.15s;
+		z-index: 1;
 	}
 
-	.activate-action-btn:hover {
-		background: var(--color-text-secondary);
-	}
-
-	.navigate-action-btn {
-		flex: 1;
-		padding: 0.4rem 0.5rem;
-		font-size: 0.85rem;
-		background: var(--color-info, #3b82f6);
-		color: white;
-		border: none;
-		border-radius: 4px;
-		cursor: pointer;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		min-height: 28px;
-	}
-
-	.navigate-action-btn:hover:not(:disabled) {
-		background: var(--color-info-hover, #2563eb);
-	}
-
-	.navigate-action-btn:disabled {
-		background: var(--color-disabled);
-		cursor: not-allowed;
-	}
-
-	.add-action-btn {
-		flex: 1;
-		padding: 0.4rem 0.5rem;
-		font-size: 0.85rem;
-		background: var(--color-success);
-		color: white;
-		border: none;
-		border-radius: 4px;
-		cursor: pointer;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		min-height: 28px;
+	.insert-gap-plus {
+		opacity: 0;
+		font-size: 1.1rem;
 		font-weight: 600;
+		line-height: 1;
+		pointer-events: none;
+		transition: opacity 0.15s;
 	}
 
-	.add-action-btn:hover {
-		background: var(--color-success-hover);
+	.insert-gap:hover .insert-gap-plus {
+		opacity: 1;
 	}
 
-	/* Corrective action on the "Now" card: snap the marker to the end when it has
-	   drifted behind the latest recorded step. Warning-tinted to stand out. */
-	.sync-here-btn {
-		flex: 1;
-		padding: 0.4rem 0.5rem;
-		font-size: 0.85rem;
-		background: var(--color-warning-bg, #fef3c7);
-		color: var(--color-warning-text, #92400e);
-		border: 1px solid var(--color-warning, #f59e0b);
-		border-radius: 4px;
-		cursor: pointer;
+	.insert-gap:hover {
+		background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+	}
+
+	/* The insertion cursor: where the next added step will land. */
+	.insert-gap.cursor {
+		background: color-mix(in srgb, var(--color-success) 18%, transparent);
+		color: var(--color-success);
+	}
+
+	.insert-gap.cursor .insert-gap-plus {
+		opacity: 1;
+	}
+
+	/* Enlarge affordance over the thumbnail — hover-revealed so it doesn't fight
+	   the card's click-to-edit. */
+	.enlarge-btn {
+		position: absolute;
+		top: 3px;
+		right: 3px;
+		width: 20px;
+		height: 20px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		min-height: 28px;
-		font-weight: 600;
-	}
-
-	.sync-here-btn:hover {
-		background: var(--color-warning-hover-bg, #fde68a);
-	}
-
-	.delete-action-btn {
-		flex: 1;
-		padding: 0.4rem 0.5rem;
-		font-size: 0.95rem;
-		background: var(--color-danger);
-		color: white;
 		border: none;
-		border-radius: 4px;
+		border-radius: 3px;
+		background: rgba(0, 0, 0, 0.55);
+		color: white;
+		font-size: 0.8rem;
+		line-height: 1;
 		cursor: pointer;
-		font-weight: bold;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		min-height: 28px;
+		opacity: 0;
+		transition: opacity 0.15s;
 	}
 
-	.delete-action-btn:hover:not(:disabled) {
-		background: var(--color-danger-hover);
-	}
-
-	.delete-action-btn:disabled {
-		background: var(--color-disabled);
-		cursor: not-allowed;
+	.screenshot-thumbnail:hover .enlarge-btn,
+	.enlarge-btn:focus-visible {
+		opacity: 1;
 	}
 
 	.spinner {

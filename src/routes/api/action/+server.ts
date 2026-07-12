@@ -228,7 +228,8 @@ export const POST: RequestHandler = async ({ request }) => {
 		direction,
 		text,
 		targetUrl,
-		targetTabId
+		targetTabId,
+		insertIndex
 	} = body as {
 		sessionId?: string;
 		tabId?: string;
@@ -239,6 +240,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		text?: string;
 		targetUrl?: string;
 		targetTabId?: string;
+		insertIndex?: number;
 	};
 
 	if (!sessionId || !actionType || !explanation) {
@@ -297,7 +299,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			...(result.actionResult?.redirects?.length && { redirects: result.actionResult.redirects })
 		};
 
-		const updatedSession = await addAction(sessionId, action);
+		const updatedSession = await addAction(sessionId, action, insertIndex);
 
 		return json({
 			session: updatedSession,
