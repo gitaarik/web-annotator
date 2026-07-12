@@ -6,7 +6,7 @@
 	import ExplanationInput from '$lib/components/ExplanationInput.svelte';
 	import SessionHistory from '$lib/components/SessionHistory.svelte';
 	import TabBar from '$lib/components/TabBar.svelte';
-	import { type Action, type HoverInfo, type Tab, type DismissEvent, formatAction, actionToHoverInfo } from '$lib/types';
+	import { type Action, type HoverInfo, type Tab, type DismissEvent, formatAction } from '$lib/types';
 	import { apiRequest, getErrorMessage, ApiError } from '$lib/api';
 
 	let { data } = $props();
@@ -62,12 +62,18 @@
 	// Gate playhead persistence until the initial position is restored on mount.
 	let positionSynced = $state(false);
 	let hoverInfo = $state<HoverInfo>(null);
-	// The single source of truth for the right-pane inspector's mode:
-	//   selectedStep === null → add mode (compose a new step, inserted at the cursor)
-	//   selectedStep === N    → edit mode for step N
-	// The playhead (replayedUpTo) is the insertion cursor; a new step lands at
-	// replayedUpTo + 1. Selecting a step snaps the cursor to just before it.
-	let selectedStep = $state<number | null>(null);
+	// The inspector follows the playhead. The "active step" is the next-playable one
+	// (replayedUpTo + 1) — the step the browser is positioned right before, so
+	// editing/running it is state-correct. When the active step is an existing step
+	// the inspector edits it; past the end it composes a new step to append.
+	//   selectedStep === N    → edit mode for step N (the active step)
+	//   selectedStep === null → add mode (compose a new step at the cursor)
+	// `composing` overrides the default "edit the active step" to compose a NEW step
+	// at the cursor instead (set by the "+" seams / the Now card).
+	let composing = $state(false);
+	// Bumped to force the inspector form to re-sync even when the active-step index
+	// is unchanged (e.g. deleting the active step shifts a different action into it).
+	let formResyncNonce = $state(0);
 	// Inline editing of the session's task/prompt (metadata only).
 	let editingTask = $state(false);
 	let taskDraft = $state('');
@@ -328,6 +334,8 @@
 			// history continues where it left off. A freshly launched Chrome starts
 			// at the beginning (-1).
 			replayedUpTo = response.isNew ? -1 : response.replayPosition;
+			// Land the inspector on the restored active step.
+			formResyncNonce++;
 
 			// A fresh Chrome with steps already recorded means the previous browser
 			// was lost (hard wedge or crash) and we've restarted from the beginning.
@@ -590,16 +598,10 @@
 				replayedUpTo = index - 1;
 			}
 
-			// Keep the inspector's selection valid as indices shift beneath it:
-			// deleting the edited step drops back to add mode; deleting one before
-			// it shifts the selection down by one.
-			if (selectedStep !== null) {
-				if (index === selectedStep) {
-					cancelEdit();
-				} else if (index < selectedStep) {
-					selectedStep -= 1;
-				}
-			}
+			// The active step is derived from the playhead, but a delete can shift a
+			// different action into the same index without moving the playhead — force
+			// the inspector to re-sync to whatever is now the active step.
+			formResyncNonce++;
 		} catch (e) {
 			error = getErrorMessage(e);
 		} finally {
@@ -613,13 +615,10 @@
 		navigatingIndex = index;
 		error = null;
 
-		// "Go to result" is a positioning move, not an edit — leave add mode and
-		// clear the form so nothing auto-populates against the new location.
-		selectedStep = null;
-		selectedAction = null;
-		explanation = '';
-		clickCoordinates = null;
-		typeText = '';
+		// "Go to result" repositions the live browser to where this step ended. The
+		// playhead follows (set to `index` below), so the inspector will land on the
+		// next step; make sure we're not stuck in an explicit compose.
+		composing = false;
 
 		try {
 			const response = await apiRequest<{
@@ -646,7 +645,11 @@
 		}
 	}
 
-	async function updateActionHandler() {
+	// The merged ▶ Run in edit mode: apply the form to the active step, then replay
+	// it against the live browser. handleReplayAction advances the playhead onto the
+	// step, so the active step becomes the next one and the form-sync effect prefills
+	// it — edit mode "moves along" exactly like stepping through.
+	async function runActiveStep() {
 		if (selectedStep === null || !session.id || !selectedAction || !explanation.trim()) {
 			return;
 		}
@@ -676,14 +679,8 @@
 			actions = response.session.actions;
 			const startIndex = selectedStep;
 
-			// Leave edit mode before replaying
-			selectedStep = null;
-			selectedAction = null;
-			explanation = '';
-			clickCoordinates = null;
-			typeText = '';
-
-			// Replay only the edited action
+			// Replay the edited step; this advances the playhead onto it, so the
+			// active step (and the prefilled form) roll forward to the next one.
 			await handleReplayAction(startIndex);
 		} catch (e) {
 			error = getErrorMessage(e);
@@ -785,52 +782,21 @@
 	}
 
 	async function handleSelectStep(index: number) {
-		const action = actions[index];
-		if (!action) return;
-		selectedStep = index;
+		if (!actions[index]) return;
 
-		// Snap the cursor to just before this step so the transport, the "next"
-		// highlight, and the inspector all agree on where we are. Edit re-runs this
-		// step against the live page — positioning the browser to match is the
-		// user's call via the transport (there's no cheap seek).
+		// Make this the active step: snap the cursor to just before it (so it's the
+		// next-playable one) and leave any explicit compose. The form-sync effect
+		// prefills the form; the nonce forces a re-sync even when re-selecting the
+		// same step (so it also acts as "revert my edits").
+		composing = false;
 		replayedUpTo = index - 1;
-
-		// Reset all action-specific fields first
-		clickCoordinates = null;
-		typeText = '';
-		scrollDirection = 'down';
-
-		// Populate based on action type
-		const supportedTypes = ['click', 'hover', 'scroll', 'type', 'wait', 'stop'] as const;
-		if (supportedTypes.includes(action.type as (typeof supportedTypes)[number])) {
-			selectedAction = action.type as (typeof supportedTypes)[number];
-		} else {
-			selectedAction = null;
-		}
-		explanation = action.explanation;
-
-		if ((action.type === 'click' || action.type === 'hover') && action.coordinates) {
-			clickCoordinates = action.coordinates;
-		} else if (action.type === 'scroll' && action.direction) {
-			scrollDirection = action.direction;
-		} else if (action.type === 'type' && action.text) {
-			typeText = action.text;
-		}
+		formResyncNonce++;
 
 		// Edit against the live browser: capture the current state so the canvas
-		// shows exactly what "Update & Run" will execute against. The prefilled
-		// coordinates above come from the recorded action, so they mark the old
-		// target on this fresh image — a reasonable starting point to re-place.
+		// shows what ▶ Run will execute against. The prefilled coordinates mark the
+		// recorded target on this fresh image — a starting point to re-place.
 		// Best-effort: on failure the last live screenshot stands.
 		await handleRefreshScreenshot();
-	}
-
-	function cancelEdit() {
-		selectedStep = null;
-		selectedAction = null;
-		explanation = '';
-		clickCoordinates = null;
-		typeText = '';
 	}
 
 	async function executeAction() {
@@ -933,13 +899,15 @@
 			}
 
 			// The browser is now at the state after this just-recorded action, which
-			// now lives at insertIndex. Advance the playhead onto it so the cursor
-			// sits just after (ready for the next add) and a reload restores here.
-			// For an append this is the last index; for a mid-list insert it's the
-			// inserted position, with the shifted-down steps still ahead.
+			// now lives at insertIndex. Advance the playhead onto it and leave compose
+			// mode, so the inspector rolls to the next step (mid-insert) or stays in
+			// add mode at the frontier (append). For an append insertIndex is the last
+			// index; for a mid-list insert the shifted-down steps are still ahead.
+			composing = false;
 			replayedUpTo = insertIndex;
 
-			// Ensure form is cleared after successful action
+			// Clear the compose form. If the active step is now an existing one
+			// (mid-insert), the form-sync effect immediately refills it with that step.
 			selectedAction = null;
 			explanation = '';
 			clickCoordinates = null;
@@ -964,44 +932,73 @@
 		goto('/');
 	}
 
-	// Inspector mode: editing an existing step vs. composing a new one.
+	// The active step is the next-playable one — the step the browser sits right
+	// before — so the inspector edits it by default. Past the end (or while
+	// explicitly composing) there's no step to edit: add mode.
+	let selectedStep = $derived(
+		!composing && replayedUpTo + 1 < actions.length ? replayedUpTo + 1 : null
+	);
 	let isEditMode = $derived(selectedStep !== null);
 	let isAddMode = $derived(selectedStep === null);
 
-	// The step the transport's "Play next" would run: the playhead's frontier.
-	let nextPlayableIndex = $derived(replayedUpTo + 1 < actions.length ? replayedUpTo + 1 : null);
+	// An explicit insert (via a "+" seam) sitting in front of an existing step can be
+	// cancelled back to editing that step. Appending past the end has nothing to undo.
+	let canCancelInsert = $derived(composing && replayedUpTo + 1 < actions.length);
 
-	// Move the cursor to `pos` and drop into add mode, so the next Execute inserts
-	// a step there. pos ranges 0..actions.length (end = append).
+	// Compose a new step at position `pos` (0..actions.length): move the cursor there
+	// and switch to add mode. pos === length appends.
 	function handleInsertAt(pos: number) {
-		cancelEdit(); // leave any edit and clear the form
+		composing = true;
 		replayedUpTo = pos - 1; // cursor sits at pos
+		formResyncNonce++; // reset the compose form to empty
 		error = null;
 	}
 
-	// Transport: run the next recorded step against the live browser, advancing the
-	// playhead by one.
-	function handlePlayNext() {
-		if (nextPlayableIndex === null) return;
-		handleReplayAction(nextPlayableIndex);
+	// Leave an explicit insert and return to editing the active step.
+	function cancelInsert() {
+		composing = false;
+		formResyncNonce++;
 	}
 
-	// Hovering "Play next" previews where it will act — the next step's marker on the
-	// live screenshot — mirroring the old per-card play hover. On leave, keep a
-	// mid-replay overlay if one is running, otherwise clear.
-	function previewNextAction() {
-		if (nextPlayableIndex === null) return;
-		const action = actions[nextPlayableIndex];
-		if (action) hoverInfo = actionToHoverInfo(action);
-	}
-
-	function clearNextPreview() {
-		if (replayLoading && replayedUpTo >= 0 && actions[replayedUpTo]) {
-			hoverInfo = actionToHoverInfo(actions[replayedUpTo]);
-		} else {
-			hoverInfo = null;
+	// Prefill the inspector form from a recorded action (edit mode).
+	function prefillForm(action: Action) {
+		clickCoordinates = null;
+		typeText = '';
+		scrollDirection = 'down';
+		const supported = ['click', 'hover', 'scroll', 'type', 'wait', 'stop'] as const;
+		selectedAction = supported.includes(action.type as (typeof supported)[number])
+			? (action.type as (typeof supported)[number])
+			: null;
+		explanation = action.explanation;
+		if ((action.type === 'click' || action.type === 'hover') && action.coordinates) {
+			clickCoordinates = action.coordinates;
+		} else if (action.type === 'scroll' && action.direction) {
+			scrollDirection = action.direction;
+		} else if (action.type === 'type' && action.text) {
+			typeText = action.text;
 		}
 	}
+
+	// Keep the inspector form in lockstep with the active step: prefill it in edit
+	// mode, empty it in add mode. Keyed on the active step (+ a resync nonce) so it
+	// fires only when the target actually changes — an in-progress compose or a
+	// screenshot refresh never clobbers what you've typed.
+	let lastFormKey = $state('');
+	$effect(() => {
+		const key = `${selectedStep === null ? 'add' : selectedStep}:${formResyncNonce}`;
+		if (key === lastFormKey) return;
+		lastFormKey = key;
+		if (selectedStep === null) {
+			selectedAction = null;
+			explanation = '';
+			clickCoordinates = null;
+			typeText = '';
+			scrollDirection = 'down';
+		} else {
+			const action = actions[selectedStep];
+			if (action) prefillForm(action);
+		}
+	});
 
 	// Recovery: treat every recorded step as done with the live browser as the
 	// current position. Used when the marker has drifted behind the live page.
@@ -1012,7 +1009,7 @@
 		pendingAction = null;
 		pendingActionPreview = null;
 		stopScreenshotPolling();
-		cancelEdit();
+		composing = false; // land in add mode at the end (the form-sync effect clears it)
 		error = null;
 	}
 
@@ -1059,12 +1056,11 @@
 			browserUnresponsive = false;
 			restartNotice = false;
 
-			// Clear transient action/edit state so the reset is clean.
-			selectedStep = null;
-			selectedAction = null;
-			explanation = '';
-			clickCoordinates = null;
-			typeText = '';
+			// Clear transient action/edit state so the reset is clean. The playhead
+			// reset to -1 above puts the inspector on the first step (or add mode when
+			// empty); the form-sync effect refills the form, so just nudge it.
+			composing = false;
+			formResyncNonce++;
 			pendingAction = null;
 			pendingActionPreview = null;
 			queuedReplayIndex = null;
@@ -1271,12 +1267,7 @@
 							</div>
 						</div>
 					{:else if displayScreenshot}
-						<div class="screenshot-wrapper" class:editing-mode={isEditMode} class:action-running={showLoadingIndicator}>
-							{#if selectedStep !== null}
-								<div class="editing-banner">
-									Editing Step #{selectedStep}
-								</div>
-							{/if}
+						<div class="screenshot-wrapper" class:action-running={showLoadingIndicator}>
 							<svelte:boundary onerror={(e) => error = `Screenshot error: ${getErrorMessage(e)}`}>
 								<ScreenshotViewer
 									src={versionedSrc(displayScreenshot)}
@@ -1312,20 +1303,6 @@
 						<div class="screenshot-toolbar">
 							{#if actions.length > 0}
 								<div class="transport">
-									<button
-										class="toolbar-btn transport-play"
-										onclick={handlePlayNext}
-										onmouseenter={previewNextAction}
-										onmouseleave={clearNextPreview}
-										onfocus={previewNextAction}
-										onblur={clearNextPreview}
-										disabled={nextPlayableIndex === null || replayLoading || actionLoading}
-										title={nextPlayableIndex === null
-											? 'Already at the latest step'
-											: `Play step #${nextPlayableIndex} against the live browser`}
-									>
-										{replayLoading ? '…' : '▶'} Play next
-									</button>
 									<span class="position-readout" title="Playhead position">
 										Step {replayedUpTo + 1} / {actions.length}
 									</span>
@@ -1387,18 +1364,25 @@
 						</div>
 					{:else}
 						<div class="inspector-header" class:editing={isEditMode}>
-							{#if isEditMode}
+							<div class="inspector-head-left">
 								<span class="inspector-title">
-									<span class="inspector-dot editing"></span>
-									Editing step #{selectedStep}
+									<span
+										class="inspector-dot"
+										class:editing={isEditMode}
+										class:adding={isAddMode}
+									></span>
+									{#if isEditMode}
+										Editing step #{selectedStep} of {actions.length}
+									{:else}
+										Add step
+									{/if}
 								</span>
-								<button class="inspector-cancel" onclick={cancelEdit}>Cancel</button>
-							{:else}
-								<span class="inspector-title">
-									<span class="inspector-dot adding"></span>
-									Add step
-								</span>
-								<span class="inspector-sub">inserts {insertLabel}</span>
+								{#if isAddMode}
+									<span class="inspector-sub">inserts {insertLabel}</span>
+								{/if}
+							</div>
+							{#if canCancelInsert}
+								<button class="inspector-cancel" onclick={cancelInsert}>Cancel insert</button>
 							{/if}
 						</div>
 
@@ -1426,8 +1410,8 @@
 						{#if isEditMode && selectedStep !== null}
 							{@const idx = selectedStep}
 							{@const step = actions[idx]}
-							<button class="update-btn" onclick={updateActionHandler} disabled={isLoading || !canExecute}>
-								{isLoading ? 'Running...' : 'Update & Run'}
+							<button class="run-btn" onclick={runActiveStep} disabled={isLoading || !canExecute}>
+								{isLoading ? 'Running…' : `▶ Run step #${idx}`}
 							</button>
 							<div class="inspector-actions">
 								{#if step && step.afterUrl && step.afterUrl !== step.url}
@@ -1455,8 +1439,8 @@
 								{isLoading ? 'Dismissing...' : 'Dismiss popup'}
 							</button>
 						{:else}
-							<button class="execute-btn" onclick={executeAction} disabled={isLoading || !canExecute}>
-								{isLoading ? 'Executing...' : 'Execute Action'}
+							<button class="run-btn" onclick={executeAction} disabled={isLoading || !canExecute}>
+								{isLoading ? 'Running…' : '▶ Run new step'}
 							</button>
 						{/if}
 
@@ -1681,11 +1665,6 @@
 		display: inline-block;
 	}
 
-	.screenshot-wrapper.editing-mode {
-		outline: 3px solid var(--color-purple);
-		border-radius: 6px;
-	}
-
 	.screenshot-wrapper.action-running {
 		outline: 2px solid var(--color-primary);
 		outline-offset: 2px;
@@ -1702,21 +1681,6 @@
 			outline-color: color-mix(in srgb, var(--color-primary) 50%, transparent);
 			outline-offset: 4px;
 		}
-	}
-
-	.editing-banner {
-		position: absolute;
-		top: 0;
-		left: 0;
-		right: 0;
-		background: var(--color-purple);
-		color: white;
-		padding: var(--space-xs) var(--space-sm);
-		font-size: 0.85rem;
-		font-weight: 600;
-		text-align: center;
-		z-index: 10;
-		border-radius: 4px 4px 0 0;
 	}
 
 	.action-loading-overlay {
@@ -1918,16 +1882,6 @@
 		gap: var(--space-sm);
 	}
 
-	.transport-play {
-		font-weight: 600;
-		color: var(--color-success);
-		border-color: var(--color-success);
-	}
-
-	.transport-play:hover:not(:disabled) {
-		background: var(--color-success-bg);
-	}
-
 	.position-readout {
 		font-size: 0.8rem;
 		color: var(--color-text-muted);
@@ -1972,6 +1926,13 @@
 	.inspector-header.editing {
 		border-left-color: var(--color-purple);
 		background: var(--color-purple-light, var(--color-bg-tertiary));
+	}
+
+	.inspector-head-left {
+		display: flex;
+		align-items: baseline;
+		gap: var(--space-sm);
+		min-width: 0;
 	}
 
 	.inspector-title {
@@ -2066,23 +2027,13 @@
 		color: var(--color-text-muted);
 	}
 
-	.execute-btn {
+	/* The merged primary action — runs the active step (edit mode) or the composed
+	   new step (add mode) and advances the playhead. */
+	.run-btn {
 		width: 100%;
 		padding: var(--space-lg);
 		font-size: 1.1rem;
 		font-weight: 600;
-	}
-
-	.update-btn {
-		width: 100%;
-		padding: var(--space-lg);
-		font-size: 1.1rem;
-		font-weight: 600;
-		background: var(--color-purple);
-	}
-
-	.update-btn:hover:not(:disabled) {
-		background: var(--color-purple-hover);
 	}
 
 	.dismiss-btn {
