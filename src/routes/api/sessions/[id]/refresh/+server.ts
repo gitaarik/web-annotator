@@ -23,14 +23,17 @@ export const GET: RequestHandler = async () => {
  * POST: Refresh screenshot and return current state
  */
 export const POST: RequestHandler = async ({ params, request }) => {
-	const { tabId } = await request.json();
+	const { tabId, live } = await request.json();
 
 	if (!tabId) {
 		return badRequest('tabId is required');
 	}
 
 	try {
-		const screenshotPath = await refreshScreenshot(tabId, params.id);
+		// live polling reads the screencast frame only (never forces a capture);
+		// screenshotPath may be null while screencast is warming — the client
+		// keeps the last frame in that case.
+		const screenshotPath = await refreshScreenshot(tabId, params.id, { live: !!live });
 		const viewport = getViewport();
 		const currentUrl = await getCurrentUrl(tabId);
 

@@ -426,6 +426,49 @@ app.post('/sessions/:id/scroll', async (req, res) => {
 	}
 });
 
+// Screencast (push-based live view) — experimental. Unlike /screenshot polling,
+// frames are pushed by Chrome from the compositor without forcing a render pass.
+app.post('/sessions/:id/screencast/start', async (req, res) => {
+	try {
+		const client = await getCdpClient(req.params.id);
+		if (!client) {
+			res.status(404).json({ error: 'Session not found' });
+			return;
+		}
+		await client.startScreencast({ quality: req.body?.quality, everyNthFrame: req.body?.everyNthFrame });
+		res.json({ success: true });
+	} catch (err) {
+		sendError(res, err);
+	}
+});
+
+app.post('/sessions/:id/screencast/stop', async (req, res) => {
+	try {
+		const client = await getCdpClient(req.params.id);
+		if (!client) {
+			res.status(404).json({ error: 'Session not found' });
+			return;
+		}
+		await client.stopScreencast();
+		res.json({ success: true });
+	} catch (err) {
+		sendError(res, err);
+	}
+});
+
+app.get('/sessions/:id/screencast/frame', async (req, res) => {
+	try {
+		const client = await getCdpClient(req.params.id);
+		if (!client) {
+			res.status(404).json({ error: 'Session not found' });
+			return;
+		}
+		res.json({ data: client.getLastScreencastFrame() });
+	} catch (err) {
+		sendError(res, err);
+	}
+});
+
 // =============================================================================
 // SCREENSHOT ENDPOINT
 // =============================================================================

@@ -149,13 +149,14 @@ async function browserApi<T>(
 async function saveScreenshot(
 	base64Data: string,
 	sessionId: string,
-	filename: string
+	filename: string,
+	ext: 'png' | 'jpg' = 'png'
 ): Promise<string> {
 	const screenshotDir = path.join(process.cwd(), 'static', 'screenshots', sessionId);
 	await fs.mkdir(screenshotDir, { recursive: true });
-	const screenshotPath = path.join(screenshotDir, `${filename}.png`);
+	const screenshotPath = path.join(screenshotDir, `${filename}.${ext}`);
 	await fs.writeFile(screenshotPath, Buffer.from(base64Data, 'base64'));
-	return `/screenshots/${sessionId}/${filename}.png`;
+	return `/screenshots/${sessionId}/${filename}.${ext}`;
 }
 
 /**
@@ -747,9 +748,45 @@ export async function replaySingleAction(
 	);
 }
 
-export async function refreshScreenshot(tabId: string, sessionId: string): Promise<string> {
+// Non-live (one-shot) callers always get a string (forced-capture fallback);
+// only live polling can return null (screencast frame not ready yet).
+export function refreshScreenshot(
+	tabId: string,
+	sessionId: string,
+	opts?: { live?: false }
+): Promise<string>;
+export function refreshScreenshot(
+	tabId: string,
+	sessionId: string,
+	opts: { live: boolean }
+): Promise<string | null>;
+export async function refreshScreenshot(
+	tabId: string,
+	sessionId: string,
+	opts?: { live?: boolean }
+): Promise<string | null> {
 	const browserSessionId = getSessionId(tabId);
 	const timestamp = Date.now();
+	// Prefer the pushed screencast frame — no forced capture, so it can't wedge a
+	// heavy page (a polled Page.captureScreenshot forces a synchronous render
+	// pass, which does).
+	try {
+		const frame = await browserApi<{ data: string | null }>(
+			'GET',
+			`/sessions/${browserSessionId}/screencast/frame`
+		);
+		if (frame.data) {
+			return saveScreenshot(frame.data, browserSessionId, `refresh-${timestamp}`, 'jpg');
+		}
+	} catch {
+		// fall through
+	}
+	// No frame yet (screencast still warming up). Live polling must NOT fall back
+	// to a forced capture: repeated forced captures during the warm-up window can
+	// wedge the renderer before screencast delivers a frame. Return null and let
+	// the caller keep the last frame. One-shot callers (resume / manual refresh)
+	// force a capture for a guaranteed frame — a single capture never wedges.
+	if (opts?.live) return null;
 	return captureScreenshot(browserSessionId, `refresh-${timestamp}`);
 }
 

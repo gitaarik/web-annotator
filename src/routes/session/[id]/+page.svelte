@@ -180,7 +180,8 @@
 			const response = await fetch(`/api/sessions/${session.id}/refresh`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ tabId })
+				// live: read the pushed screencast frame only, never force a capture
+				body: JSON.stringify({ tabId, live: true })
 			});
 			const data = await response.json();
 			if (response.status === 503 && data?.code === 'RENDERER_UNRESPONSIVE') {

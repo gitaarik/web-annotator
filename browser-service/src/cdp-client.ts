@@ -103,6 +103,12 @@ export class CdpClient {
 	private profileTimer: ReturnType<typeof setInterval> | null = null;
 	private profilingActive = false;
 
+	// Screencast (push-based live view). Chrome pushes frames the compositor
+	// already produced, so — unlike Page.captureScreenshot — it never forces a
+	// synchronous render pass, which is what wedges heavy pages under polling.
+	private screencasting = false;
+	private lastScreencastFrame: string | null = null;
+
 	constructor(
 		public readonly cdpPort: number,
 		public readonly browserWsUrl: string
@@ -181,6 +187,11 @@ export class CdpClient {
 				// cache would stay empty until the next navigation.
 				this.seedUrlFromFrameTree().catch(() => {});
 				if (this.forensicsEnabled) this.startForensics().catch(() => {});
+				// Push-based live view. Frames are captured from compositor output the
+				// page already produced, so — unlike polling Page.captureScreenshot —
+				// this never forces a synchronous render pass (the heavy-page wedge).
+				// everyNthFrame:2 halves the frame load while staying smooth enough.
+				this.startScreencast({ everyNthFrame: 2 }).catch(() => {});
 				resolve();
 			});
 
@@ -232,6 +243,16 @@ export class CdpClient {
 	 * Handle unsolicited CDP events (messages without an id).
 	 */
 	private handleEvent(method: string, params?: Record<string, unknown>): void {
+		if (method === 'Page.screencastFrame') {
+			const p = params as { data?: string; sessionId?: number } | undefined;
+			if (p?.data) this.lastScreencastFrame = p.data;
+			// Ack is mandatory — Chrome stops sending frames until the last is acked.
+			if (p?.sessionId !== undefined) {
+				this.send('Page.screencastFrameAck', { sessionId: p.sessionId }).catch(() => {});
+			}
+			return;
+		}
+
 		if (this.forensicsEnabled && method === 'Network.requestWillBeSent') {
 			const url = (params?.request as { url?: string } | undefined)?.url;
 			if (url) {
@@ -697,6 +718,26 @@ export class CdpClient {
 	 * Returns base64-encoded PNG data.
 	 * Includes retry logic for transient failures (e.g., connection issues).
 	 */
+	/** Start pushing screencast frames (jpeg). Frames arrive via handleEvent. */
+	async startScreencast(opts?: { quality?: number; everyNthFrame?: number }): Promise<void> {
+		this.screencasting = true;
+		this.lastScreencastFrame = null;
+		await this.send('Page.startScreencast', {
+			format: 'jpeg',
+			quality: opts?.quality ?? 60,
+			everyNthFrame: opts?.everyNthFrame ?? 1
+		});
+	}
+
+	async stopScreencast(): Promise<void> {
+		this.screencasting = false;
+		await this.send('Page.stopScreencast');
+	}
+
+	getLastScreencastFrame(): string | null {
+		return this.lastScreencastFrame;
+	}
+
 	async screenshot(options?: { format?: 'png' | 'jpeg'; quality?: number }): Promise<string> {
 		// Circuit breaker: if the renderer was just seen wedged, don't burn the
 		// full timeout again — fail fast with the recoverable error.
