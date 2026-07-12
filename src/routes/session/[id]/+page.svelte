@@ -39,6 +39,10 @@
 	let browserLoading = $state(true);
 	let actionLoading = $state(false);
 	let replayLoading = $state(false);
+	// Which step is mid-replay, for the timeline spinner. Kept separate from the
+	// playhead so the inspector doesn't advance to the next step until the current
+	// one has actually run (otherwise the form/overlay jump ahead during submit).
+	let runningIndex = $state<number | null>(null);
 	let deletingIndex = $state<number | null>(null);
 	let refreshLoading = $state(false);
 	let tabLoading = $state(false);
@@ -371,9 +375,10 @@
 		error = null;
 		queuedReplayIndex = null; // Clear queued state as we're now running
 
-		// Optimistically update replayedUpTo so next button is enabled for queuing
-		const previousReplayedUpTo = replayedUpTo;
-		replayedUpTo = index;
+		// Mark which card is running (for its spinner) but DON'T advance the playhead
+		// yet: the inspector follows the playhead, so advancing now would jump the
+		// form/overlay to the next step while this one is still submitting.
+		runningIndex = index;
 
 		startScreenshotPolling();
 
@@ -397,13 +402,16 @@
 			if (response.session) {
 				actions = response.session.actions;
 			}
+
+			// The step ran: now advance the playhead onto it, which rolls the inspector
+			// forward to the next step and refreshes the screenshot underneath.
+			replayedUpTo = index;
 		} catch (e) {
-			// Revert on failure
-			replayedUpTo = previousReplayedUpTo;
 			reportError(e);
 		} finally {
 			stopScreenshotPolling();
 			replayLoading = false;
+			runningIndex = null;
 
 			// Run pending action if queued
 			if (pendingAction) {
@@ -1216,7 +1224,7 @@
 							currentScreenshot={screenshotPath}
 							{currentUrl}
 							{replayedUpTo}
-							loadingIndex={replayLoading ? replayedUpTo : null}
+							loadingIndex={runningIndex}
 							queuedIndex={queuedReplayIndex}
 							onDelete={handleDeleteAction}
 							{deletingIndex}
