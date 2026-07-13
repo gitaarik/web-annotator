@@ -1027,19 +1027,6 @@
 		}
 	});
 
-	// Recovery: treat every recorded step as done with the live browser as the
-	// current position. Used when the marker has drifted behind the live page.
-	function handleSyncToLatest() {
-		replayedUpTo = actions.length - 1;
-		actionLoading = false;
-		replayLoading = false;
-		pendingAction = null;
-		pendingActionPreview = null;
-		stopScreenshotPolling();
-		composing = false; // land in add mode at the end (the form-sync effect clears it)
-		error = null;
-	}
-
 	// Deliberately restart the browser from the first step. Tears down the live
 	// Chrome and relaunches it clean at the session's start URL, resetting the
 	// current step to the beginning. Recorded steps are kept — this only discards
@@ -1374,17 +1361,8 @@
 
 				{#if displayScreenshot}
 					<!-- Session-global actions, below the filmstrip so the screenshot and its
-					     history sit back-to-back. Sync (recovery) sits left; the rest right. -->
+					     history sit back-to-back. -->
 					<div class="action-bar">
-						{#if actions.length > 0 && replayedUpTo < actions.length - 1}
-							<button
-								class="toolbar-btn sync-btn"
-								onclick={handleSyncToLatest}
-								title="Mark every recorded step as done, with the live browser as the current position"
-							>
-								⇥ Sync to latest
-							</button>
-						{/if}
 						<div class="toolbar-buttons">
 							<button
 								class="toolbar-btn"
@@ -1994,15 +1972,6 @@
 	.back-to-live-btn:hover {
 		background: var(--color-bg-tertiary);
 		border-color: var(--color-border-hover);
-	}
-
-	.toolbar-btn.sync-btn {
-		color: var(--color-warning-text, #92400e);
-		border-color: var(--color-warning, #f59e0b);
-	}
-
-	.toolbar-btn.sync-btn:hover:not(:disabled) {
-		background: var(--color-warning-bg, #fef3c7);
 	}
 
 	.controls-section {
