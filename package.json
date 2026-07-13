@@ -7,6 +7,8 @@
 		"browser-service"
 	],
 	"scripts": {
+		"seed": "node scripts/seed-samples.mjs",
+		"predev": "node scripts/seed-samples.mjs",
 		"dev": "vite dev",
 		"dev:browser": "npm start --workspace=browser-service",
 		"dev:all": "npm run dev:browser & sleep 2 && npm run dev",

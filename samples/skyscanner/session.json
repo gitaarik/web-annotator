@@ -1,0 +1,97 @@
+{
+  "id": "20ffc38a-af24-4115-a6a5-52ef0bcc0c22",
+  "url": "https://www.skyscanner.com",
+  "prompt": "Find a flight to Barcelona ",
+  "plan": "Yo",
+  "createdAt": "2026-05-20T19:25:58.253Z",
+  "tabs": [
+    {
+      "id": "tab-1779305152543-w7hy0p",
+      "url": "https://www.skyscanner.com",
+      "createdAt": "2026-05-20T19:25:58.253Z"
+    }
+  ],
+  "activeTabId": "tab-1779305152543-w7hy0p",
+  "actions": [
+    {
+      "type": "click",
+      "tabId": "tab-1779305158310-wdyfgn",
+      "explanation": "Click the \"To\" field to select city to fly to",
+      "timestamp": "2026-05-20T19:26:55.679Z",
+      "screenshotPath": "/screenshots/20ffc38a-af24-4115-a6a5-52ef0bcc0c22/replay-0-before.webp",
+      "url": "https://www.skyscanner.nl/?previousCultureSource=COOKIE&redirectedFrom=www.skyscanner.com",
+      "coordinates": {
+        "x": 363,
+        "y": 333
+      }
+    },
+    {
+      "type": "type",
+      "tabId": "tab-1779307340141-fs9tep",
+      "explanation": "Type \"Barcelona\"",
+      "timestamp": "2026-05-20T20:04:59.926Z",
+      "screenshotPath": "/screenshots/20ffc38a-af24-4115-a6a5-52ef0bcc0c22/replay-1-before.webp",
+      "url": "https://www.skyscanner.nl/?previousCultureSource=COOKIE&redirectedFrom=www.skyscanner.com",
+      "text": "Barcelona"
+    },
+    {
+      "type": "click",
+      "tabId": "tab-1779307755912-4fo41e",
+      "explanation": "Click on Barcelona",
+      "timestamp": "2026-05-20T20:10:28.909Z",
+      "screenshotPath": "/screenshots/20ffc38a-af24-4115-a6a5-52ef0bcc0c22/replay-2-before.webp",
+      "url": "https://www.skyscanner.nl/?previousCultureSource=COOKIE&redirectedFrom=www.skyscanner.com",
+      "coordinates": {
+        "x": 352,
+        "y": 415
+      }
+    },
+    {
+      "type": "click",
+      "tabId": "tab-1779307874698-nc3r5s",
+      "explanation": "Click on the first upcoming green date",
+      "timestamp": "2026-05-20T20:12:18.147Z",
+      "screenshotPath": "/screenshots/20ffc38a-af24-4115-a6a5-52ef0bcc0c22/replay-3-before.webp",
+      "url": "https://www.skyscanner.nl/?previousCultureSource=COOKIE&redirectedFrom=www.skyscanner.com",
+      "coordinates": {
+        "x": 733,
+        "y": 607
+      }
+    },
+    {
+      "type": "scroll",
+      "tabId": "tab-1779307874698-nc3r5s",
+      "explanation": "Scroll down",
+      "timestamp": "2026-05-20T20:12:45.897Z",
+      "screenshotPath": "/screenshots/20ffc38a-af24-4115-a6a5-52ef0bcc0c22/replay-4-before.webp",
+      "url": "https://www.skyscanner.nl/?previousCultureSource=COOKIE&redirectedFrom=www.skyscanner.com",
+      "direction": "down"
+    },
+    {
+      "type": "click",
+      "tabId": "tab-1779307874698-nc3r5s",
+      "explanation": "Click confirm",
+      "timestamp": "2026-05-20T20:13:09.595Z",
+      "screenshotPath": "/screenshots/20ffc38a-af24-4115-a6a5-52ef0bcc0c22/replay-5-before.webp",
+      "url": "https://www.skyscanner.nl/?previousCultureSource=COOKIE&redirectedFrom=www.skyscanner.com",
+      "coordinates": {
+        "x": 1008,
+        "y": 421
+      }
+    },
+    {
+      "type": "click",
+      "tabId": "tab-1779307874698-nc3r5s",
+      "explanation": "Click search",
+      "timestamp": "2026-05-20T20:13:48.533Z",
+      "screenshotPath": "/screenshots/20ffc38a-af24-4115-a6a5-52ef0bcc0c22/replay-6-before.webp",
+      "url": "https://www.skyscanner.nl/?previousCultureSource=COOKIE&redirectedFrom=www.skyscanner.com",
+      "afterUrl": "https://www.skyscanner.nl/hotels/search?checkin=2026-06-08&checkout=2026-06-09&entity_id=27548283&source=parallel_search",
+      "coordinates": {
+        "x": 1164,
+        "y": 327
+      }
+    }
+  ],
+  "initialScreenshot": "/screenshots/20ffc38a-af24-4115-a6a5-52ef0bcc0c22/refresh-1779305158024.webp"
+}

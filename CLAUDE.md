@@ -19,6 +19,7 @@ pnpm check        # Type check
 - `src/routes/api/` - API endpoints
 - `src/routes/session/[id]/` - Session viewer page
 - `browser-service/` - Standalone browser-control service (Chrome + OS-level input via HTTP API); the app talks to it over `BROWSER_SERVICE_URL`
+- `samples/` - Bundled example sessions (`<name>/session.json` + `shots/*.webp`); `scripts/seed-samples.mjs` copies them into the runtime dirs, and `predev`/`pnpm seed` run it (idempotent)
 - `data/sessions/` - Session JSON files (gitignored)
 
 ## Key Concepts

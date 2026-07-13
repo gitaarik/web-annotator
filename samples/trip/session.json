@@ -1,0 +1,17 @@
+{
+  "id": "133d7273-5207-43aa-87ef-e99edef9a3e1",
+  "url": "https://www.trip.com/",
+  "prompt": "what are the 3 cheapest hotel stays in Paris for 5 nights starting November, 20 with at least 4-stars rating?",
+  "plan": "Ha",
+  "createdAt": "2026-05-20T18:54:44.429Z",
+  "tabs": [
+    {
+      "id": "tab-1779303283495-4z11s2",
+      "url": "https://www.trip.com/",
+      "createdAt": "2026-05-20T18:54:44.429Z"
+    }
+  ],
+  "activeTabId": "tab-1779303283495-4z11s2",
+  "actions": [],
+  "initialScreenshot": "/screenshots/133d7273-5207-43aa-87ef-e99edef9a3e1/refresh-1779303284036.webp"
+}
