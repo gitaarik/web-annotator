@@ -106,7 +106,7 @@
 </script>
 
 <main>
-	<h1>Web Browser Annotation Tool</h1>
+	<h1>Web Annotator</h1>
 
 	{#if error}
 		<div class="error">{error}</div>
