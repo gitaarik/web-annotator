@@ -250,35 +250,6 @@ export async function osClick(
 	}
 }
 
-// =============================================================================
-// INPUT CLEARING
-// =============================================================================
-
-/**
- * Clear focused input via OS-level select-all + delete.
- */
-export async function osClearInput(): Promise<void> {
-	switch (process.platform) {
-		case 'linux':
-			await runProc('xdotool', ['key', 'ctrl+a', 'BackSpace']);
-			break;
-		case 'darwin': {
-			const script = `tell application "System Events" to keystroke "a" using command down
-delay 0.05
-tell application "System Events" to key code 51`;
-			await runProc('osascript', ['-e', script]);
-			break;
-		}
-		case 'win32': {
-			const script = `Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('^a'); Start-Sleep -Milliseconds 50; [System.Windows.Forms.SendKeys]::SendWait('{BACKSPACE}')`;
-			await runProc('powershell', ['-NoProfile', '-Command', script]);
-			break;
-		}
-		default:
-			throw new Error(`Unsupported platform for OS-level clear: ${process.platform}`);
-	}
-}
-
 /**
  * Press Enter via OS-level injection.
  */

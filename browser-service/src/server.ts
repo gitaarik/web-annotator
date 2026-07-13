@@ -15,7 +15,7 @@ import {
 } from './session-registry.js';
 import { CdpClient, RendererUnresponsiveError } from './cdp-client.js';
 import { activateBrowserWindow } from './focus.js';
-import { osClick, osType, osClearInput } from './os-input.js';
+import { osClick, osType } from './os-input.js';
 
 const app: Express = express();
 app.use(express.json());
@@ -368,27 +368,6 @@ app.post('/sessions/:id/type', async (req, res) => {
 	}
 });
 
-app.post('/sessions/:id/clear', async (req, res) => {
-	try {
-		const session = getSession(req.params.id);
-		if (!session) {
-			res.status(404).json({ error: 'Session not found' });
-			return;
-		}
-
-		const focused = await activateBrowserWindow(session.chromePid);
-		if (focused) {
-			await osClearInput();
-			res.json({ success: true });
-			return;
-		}
-
-		res.status(500).json({ error: 'Could not focus browser window' });
-	} catch (err) {
-		sendError(res, err);
-	}
-});
-
 app.post('/sessions/:id/scroll', async (req, res) => {
 	try {
 		const { deltaX = 0, deltaY = 0, x, y } = req.body;
@@ -406,36 +385,10 @@ app.post('/sessions/:id/scroll', async (req, res) => {
 	}
 });
 
-// Screencast (push-based live view) — experimental. Unlike /screenshot polling,
-// frames are pushed by Chrome from the compositor without forcing a render pass.
-app.post('/sessions/:id/screencast/start', async (req, res) => {
-	try {
-		const client = await getCdpClient(req.params.id);
-		if (!client) {
-			res.status(404).json({ error: 'Session not found' });
-			return;
-		}
-		await client.startScreencast({ quality: req.body?.quality, everyNthFrame: req.body?.everyNthFrame });
-		res.json({ success: true });
-	} catch (err) {
-		sendError(res, err);
-	}
-});
-
-app.post('/sessions/:id/screencast/stop', async (req, res) => {
-	try {
-		const client = await getCdpClient(req.params.id);
-		if (!client) {
-			res.status(404).json({ error: 'Session not found' });
-			return;
-		}
-		await client.stopScreencast();
-		res.json({ success: true });
-	} catch (err) {
-		sendError(res, err);
-	}
-});
-
+// Screencast (push-based live view). Frames are pushed by Chrome from the
+// compositor without forcing a render pass (unlike /screenshot polling). The
+// screencast is started automatically on CDP connect, so there's only a read
+// endpoint here — the latest frame the browser has pushed.
 app.get('/sessions/:id/screencast/frame', async (req, res) => {
 	try {
 		const client = await getCdpClient(req.params.id);

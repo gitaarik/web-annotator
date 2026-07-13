@@ -106,7 +106,6 @@ export class CdpClient {
 	// Screencast (push-based live view). Chrome pushes frames the compositor
 	// already produced, so — unlike Page.captureScreenshot — it never forces a
 	// synchronous render pass, which is what wedges heavy pages under polling.
-	private screencasting = false;
 	private lastScreencastFrame: string | null = null;
 
 	// In-flight network requests (requestId -> start timestamp), tracked from
@@ -743,25 +742,14 @@ export class CdpClient {
 		}
 	}
 
-	/**
-	 * Capture a screenshot.
-	 * Returns base64-encoded PNG data.
-	 * Includes retry logic for transient failures (e.g., connection issues).
-	 */
 	/** Start pushing screencast frames (jpeg). Frames arrive via handleEvent. */
 	async startScreencast(opts?: { quality?: number; everyNthFrame?: number }): Promise<void> {
-		this.screencasting = true;
 		this.lastScreencastFrame = null;
 		await this.send('Page.startScreencast', {
 			format: 'jpeg',
 			quality: opts?.quality ?? 60,
 			everyNthFrame: opts?.everyNthFrame ?? 1
 		});
-	}
-
-	async stopScreencast(): Promise<void> {
-		this.screencasting = false;
-		await this.send('Page.stopScreencast');
 	}
 
 	/**
@@ -869,24 +857,6 @@ export class CdpClient {
 			layoutViewport: { pageX: number; pageY: number; clientWidth: number; clientHeight: number };
 			cssLayoutViewport: { pageX: number; pageY: number; clientWidth: number; clientHeight: number };
 		};
-	}
-
-	/**
-	 * Get browser window bounds.
-	 */
-	async getWindowBounds(): Promise<{
-		left: number;
-		top: number;
-		width: number;
-		height: number;
-		windowState: string;
-	}> {
-		// First get the window ID
-		const windowResult = await this.send('Browser.getWindowForTarget') as {
-			windowId: number;
-			bounds: { left: number; top: number; width: number; height: number; windowState: string };
-		};
-		return windowResult.bounds;
 	}
 
 	/**
