@@ -1280,55 +1280,17 @@
 								</div>
 							{/if}
 						</div>
+						<!-- Readouts only — contextual to the canvas, so they stay next to it.
+						     The action buttons live in .action-bar below the filmstrip. -->
 						<div class="screenshot-toolbar">
 							{#if actions.length > 0}
-								<div class="transport">
-									<span class="position-readout" title="Playhead position">
-										Step {replayedUpTo + 1} / {actions.length}
-									</span>
-									{#if replayedUpTo < actions.length - 1}
-										<button
-											class="toolbar-btn sync-btn"
-											onclick={handleSyncToLatest}
-											title="Mark every recorded step as done, with the live browser as the current position"
-										>
-											⇥ Sync to latest
-										</button>
-									{/if}
-								</div>
+								<span class="position-readout" title="Playhead position">
+									Step {replayedUpTo + 1} / {actions.length}
+								</span>
 							{/if}
-							<div class="toolbar-right">
-								{#if clickCoordinates && (selectedAction === 'click' || selectedAction === 'hover' || selectedAction === 'dismiss')}
-									<span class="coordinates">Selected: ({clickCoordinates.x}, {clickCoordinates.y})</span>
-								{/if}
-								<div class="toolbar-buttons">
-									{#if isAddMode}
-										<button
-											class="toolbar-btn"
-											onclick={handleRefreshScreenshot}
-											disabled={refreshLoading}
-											title="Refresh screenshot"
-										>
-											{refreshLoading ? '...' : '↻'} Refresh
-										</button>
-									{/if}
-									<button
-										class="toolbar-btn"
-										onclick={handleExportSession}
-										title="Export session as JSON"
-									>
-										↓ Export
-									</button>
-									<button
-										class="toolbar-btn restart-btn"
-										onclick={handleRestart}
-										disabled={browserLoading || actionLoading || replayLoading}
-										title="Restart the browser from the first step (recorded steps are kept)"
-									>
-										↺ Restart
-									</button>
-								</div>
-							</div>
+							{#if clickCoordinates && (selectedAction === 'click' || selectedAction === 'hover' || selectedAction === 'dismiss')}
+								<span class="coordinates">Selected: ({clickCoordinates.x}, {clickCoordinates.y})</span>
+							{/if}
 						</div>
 					{:else}
 						<div class="screenshot-placeholder">
@@ -1361,6 +1323,49 @@
 								<div class="error">Failed to render session history. Please refresh the page.</div>
 							{/snippet}
 						</svelte:boundary>
+					</div>
+				{/if}
+
+				{#if displayScreenshot}
+					<!-- Session-global actions, below the filmstrip so the screenshot and its
+					     history sit back-to-back. Sync (recovery) sits left; the rest right. -->
+					<div class="action-bar">
+						{#if actions.length > 0 && replayedUpTo < actions.length - 1}
+							<button
+								class="toolbar-btn sync-btn"
+								onclick={handleSyncToLatest}
+								title="Mark every recorded step as done, with the live browser as the current position"
+							>
+								⇥ Sync to latest
+							</button>
+						{/if}
+						<div class="toolbar-buttons">
+							{#if isAddMode}
+								<button
+									class="toolbar-btn"
+									onclick={handleRefreshScreenshot}
+									disabled={refreshLoading}
+									title="Refresh screenshot"
+								>
+									{refreshLoading ? '...' : '↻'} Refresh
+								</button>
+							{/if}
+							<button
+								class="toolbar-btn"
+								onclick={handleExportSession}
+								title="Export session as JSON"
+							>
+								↓ Export
+							</button>
+							<button
+								class="toolbar-btn restart-btn"
+								onclick={handleRestart}
+								disabled={browserLoading || actionLoading || replayLoading}
+								title="Restart the browser from the first step (recorded steps are kept)"
+							>
+								↺ Restart
+							</button>
+						</div>
 					</div>
 				{/if}
 
@@ -1660,10 +1665,11 @@
 	.main-content {
 		display: grid;
 		grid-template-columns: 1fr 350px;
-		grid-template-rows: auto auto;
+		grid-template-rows: auto auto auto;
 		grid-template-areas:
 			'screenshot controls'
-			'history controls';
+			'history controls'
+			'actionbar controls';
 		align-items: start;
 		column-gap: var(--space-2xl);
 		row-gap: var(--space-lg);
@@ -1840,12 +1846,24 @@
 		}
 	}
 
+	/* Readouts strip directly under the canvas: playhead position + selected
+	   coordinates. Contextual to the screenshot, so it stays adjacent to it. */
 	.screenshot-toolbar {
 		margin-top: var(--space-sm);
 		display: flex;
 		align-items: center;
-		justify-content: space-between;
-		gap: var(--space-lg);
+		gap: var(--space-md);
+		min-height: 1.5rem;
+	}
+
+	/* Session-global action bar, below the history filmstrip. */
+	.action-bar {
+		grid-area: actionbar;
+		display: flex;
+		align-items: center;
+		gap: var(--space-sm);
+		padding-top: var(--space-lg);
+		border-top: 1px solid var(--color-border-light);
 	}
 
 	.toolbar-buttons {
@@ -1892,13 +1910,6 @@
 		color: var(--color-text-muted);
 	}
 
-	/* Transport: the single playhead control set, replacing the per-card Play. */
-	.transport {
-		display: flex;
-		align-items: center;
-		gap: var(--space-sm);
-	}
-
 	.position-readout {
 		font-size: 0.8rem;
 		color: var(--color-text-muted);
@@ -1912,13 +1923,6 @@
 
 	.toolbar-btn.sync-btn:hover:not(:disabled) {
 		background: var(--color-warning-bg, #fef3c7);
-	}
-
-	.toolbar-right {
-		display: flex;
-		align-items: center;
-		gap: var(--space-md);
-		margin-left: auto;
 	}
 
 	.controls-section {
@@ -2157,7 +2161,7 @@
 	.history-section {
 		grid-area: history;
 		min-width: 0;
-		padding-top: var(--space-lg);
+		padding-top: var(--space-sm);
 		border-top: 1px solid var(--color-border-light);
 	}
 

@@ -78,6 +78,22 @@
 	// the inspector is in add mode.
 	let cursorPosition = $derived(replayedUpTo + 1);
 
+	// The configured viewport (config.ts) can differ from the actual captured
+	// screenshot size, so the viewport ratio would render the thumbnail box at the
+	// wrong shape — tall boxes and misplaced markers. Drive the box from the real
+	// image aspect instead, matching the main ScreenshotViewer (which renders at
+	// natural size). Measured once from the first loaded thumbnail; until then we
+	// fall back to the viewport ratio.
+	let displayAspect = $state<number | null>(null);
+	function measureAspect(e: Event) {
+		if (displayAspect !== null) return;
+		const img = e.currentTarget as HTMLImageElement;
+		if (img.naturalWidth && img.naturalHeight) {
+			displayAspect = img.naturalWidth / img.naturalHeight;
+		}
+	}
+	let thumbAspect = $derived(displayAspect ?? viewport.width / viewport.height);
+
 	// Add cache-busting query param to screenshot URLs
 	function versionedSrc(src: string): string;
 	function versionedSrc(src: string | null | undefined): string | null;
@@ -333,9 +349,13 @@
 				{#if action.screenshotPath}
 					<div
 						class="screenshot-thumbnail"
-						style="aspect-ratio: {viewport.width} / {viewport.height};"
+						style="aspect-ratio: {thumbAspect};"
 					>
-						<img src={versionedSrc(action.screenshotPath)} alt="Screenshot for action {index}" />
+						<img
+							src={versionedSrc(action.screenshotPath)}
+							alt="Screenshot for action {index}"
+							onload={measureAspect}
+						/>
 						{#if action.type === 'click' && action.coordinates}
 							<div
 								class="thumbnail-click-marker"
@@ -432,7 +452,7 @@
 				</div>
 				<div
 					class="screenshot-thumbnail pending-thumbnail"
-					style="aspect-ratio: {viewport.width} / {viewport.height};"
+					style="aspect-ratio: {thumbAspect};"
 				>
 					<span class="pending-icon">...</span>
 				</div>
@@ -478,9 +498,9 @@
 				</div>
 				<div
 					class="screenshot-thumbnail"
-					style="aspect-ratio: {viewport.width} / {viewport.height};"
+					style="aspect-ratio: {thumbAspect};"
 				>
-					<img src={versionedSrc(currentScreenshot)} alt="Current state" />
+					<img src={versionedSrc(currentScreenshot)} alt="Current state" onload={measureAspect} />
 					<button
 						class="enlarge-btn"
 						onclick={(e) => {
@@ -609,14 +629,14 @@
 							{#if redirect.screenshotPath}
 								<button
 									class="flow-screenshot"
-									style="aspect-ratio: {viewport.width} / {viewport.height};"
+									style="aspect-ratio: {thumbAspect};"
 									onclick={() => {
 										expandedScreenshotSrc = redirect.screenshotPath!;
 										detailsAction = null;
 									}}
 									title="Click to enlarge"
 								>
-									<img src={versionedSrc(redirect.screenshotPath)} alt="Redirect {i + 1}" />
+									<img src={versionedSrc(redirect.screenshotPath)} alt="Redirect {i + 1}" onload={measureAspect} />
 								</button>
 							{/if}
 							<a
@@ -681,7 +701,9 @@
 
 	.action-item {
 		flex-shrink: 0;
-		width: 180px;
+		/* Card width drives thumbnail size; height follows via the viewport aspect
+		   ratio (≈ width × 0.625), so shrinking this keeps the shot's proportions. */
+		width: 130px;
 		padding: 0.5rem;
 		background: var(--color-bg-white);
 		border-radius: 6px;
