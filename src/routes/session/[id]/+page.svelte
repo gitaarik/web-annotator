@@ -6,7 +6,7 @@
 	import ExplanationInput from '$lib/components/ExplanationInput.svelte';
 	import SessionHistory from '$lib/components/SessionHistory.svelte';
 	import TabBar from '$lib/components/TabBar.svelte';
-	import { type Action, type HoverInfo, type Tab, type DismissEvent, formatAction } from '$lib/types';
+	import { type Action, type HoverInfo, type Tab, type DismissEvent, formatAction, actionToHoverInfo } from '$lib/types';
 	import { apiRequest, getErrorMessage, ApiError } from '$lib/api';
 
 	let { data } = $props();
@@ -66,6 +66,10 @@
 	// Gate playhead persistence until the initial position is restored on mount.
 	let positionSynced = $state(false);
 	let hoverInfo = $state<HoverInfo>(null);
+	// A pinned, read-only look at a recorded step. Purely a canvas overlay: it shows
+	// that step's stored screenshot without moving the playhead or retargeting the
+	// inspector — the browser stays where it truly is. null = showing live.
+	let previewIndex = $state<number | null>(null);
 	// The inspector follows the playhead. The "active step" is the next-playable one
 	// (replayedUpTo + 1) — the step the browser is positioned right before, so
 	// editing/running it is state-correct. When the active step is an existing step
@@ -757,17 +761,19 @@
 				tabId: string;
 			}>(`/api/sessions/${session.id}/dismiss`, {
 				method: 'POST',
-				body: { tabId, coordinates: clickCoordinates, explanation }
+				// Dismiss isn't a recorded task step, so it carries no explanation —
+				// don't leak whatever was prefilled for the active step into it.
+				body: { tabId, coordinates: clickCoordinates, explanation: '' }
 			});
 
 			screenshotPath = response.screenshotPath;
 			currentUrl = response.currentUrl ?? null;
 			dismissals = response.session.dismissals ?? [];
 
-			// Clear the dismiss form
-			selectedAction = null;
-			explanation = '';
-			clickCoordinates = null;
+			// Dismiss didn't move the playhead, so drop back onto whatever you were
+			// working on: re-sync the inspector to re-prefill the active step (edit
+			// state, runnable again) — or empty the form when in add mode.
+			formResyncNonce++;
 		} catch (e) {
 			reportError(e);
 		} finally {
@@ -789,23 +795,34 @@
 		}
 	}
 
-	async function handleSelectStep(index: number) {
+	// Clicking a filmstrip step pins a read-only preview of its recorded screenshot.
+	// It deliberately does NOT touch the playhead or the inspector: the browser can't
+	// teleport to a past state, so pretending it's there (and letting ▶ Run fire
+	// against the wrong page) was misleading. Click the same step again to unpin.
+	function handleSelectStep(index: number) {
 		if (!actions[index]) return;
-
-		// Make this the active step: snap the cursor to just before it (so it's the
-		// next-playable one) and leave any explicit compose. The form-sync effect
-		// prefills the form; the nonce forces a re-sync even when re-selecting the
-		// same step (so it also acts as "revert my edits").
-		composing = false;
-		replayedUpTo = index - 1;
-		formResyncNonce++;
-
-		// Edit against the live browser: capture the current state so the canvas
-		// shows what ▶ Run will execute against. The prefilled coordinates mark the
-		// recorded target on this fresh image — a starting point to re-place.
-		// Best-effort: on failure the last live screenshot stands.
-		await handleRefreshScreenshot();
+		// The current step (the edit target you're about to run) isn't a preview
+		// target — edit mode already shows it. Clicking it just clears any pinned
+		// preview and returns you to the current view. Every other step — finished or
+		// upcoming — previews read-only on the canvas.
+		if (index === selectedStep) {
+			previewIndex = null;
+			return;
+		}
+		previewIndex = previewIndex === index ? null : index;
 	}
+
+	// Any genuine movement of the browser position returns the canvas to live. run,
+	// replay, sync, insert, restart and reconnect all set replayedUpTo, so watching
+	// it clears a stale preview without instrumenting each handler.
+	let previewAnchor = $state(-1);
+	$effect(() => {
+		const pos = replayedUpTo;
+		if (pos !== previewAnchor) {
+			previewAnchor = pos;
+			previewIndex = null;
+		}
+	});
 
 	async function executeAction() {
 		if (!session.id || !tabId || !selectedAction || !explanation.trim()) {
@@ -953,11 +970,13 @@
 	// cancelled back to editing that step. Appending past the end has nothing to undo.
 	let canCancelInsert = $derived(composing && replayedUpTo + 1 < actions.length);
 
-	// Compose a new step at position `pos` (0..actions.length): move the cursor there
-	// and switch to add mode. pos === length appends.
-	function handleInsertAt(pos: number) {
+	// Insert a brand-new step in front of the active (about-to-run) step. The playhead
+	// stays put — the browser is already sitting there — we just switch from editing
+	// that existing step to composing a new one at the same spot. The step you were on
+	// shifts down one, and you return to it after running the new one. Only meaningful
+	// in edit mode; at the end of history you're already composing the last step.
+	function addStepHere() {
 		composing = true;
-		replayedUpTo = pos - 1; // cursor sits at pos
 		formResyncNonce++; // reset the compose form to empty
 		error = null;
 	}
@@ -1098,16 +1117,21 @@
 	// Only disable buttons if there's already a pending action queued (allow one queue)
 	let isLoading = $derived(actionLoading || tabLoading || pendingAction !== null);
 
-	// Always edit against the live browser — in edit mode as well as out. The
-	// coordinates you place must land on the same screenshot the action will run
-	// against, and replaySingleAction executes against the current browser state,
-	// not the recorded snapshot. Showing the old snapshot here would let you click
-	// on one image while the action fires against another. (handleSelectStep
-	// refreshes screenshotPath on entry so this reflects the true current state.)
-	let displayScreenshot = $derived(screenshotPath);
+	// The pinned step being previewed, if any (guarded against a stale index after a
+	// delete). Drives a read-only view; null means we're showing the live browser.
+	let previewAction = $derived(previewIndex !== null ? actions[previewIndex] ?? null : null);
 
-	// Effective hoverInfo: show current editing state when editing, otherwise use history hover
+	// Normally edit against the live browser: the coordinates you place must land on
+	// the same screenshot the action will run against (replaySingleAction executes
+	// against current browser state, not a recorded snapshot). While a step is pinned
+	// for preview we instead show that step's stored screenshot — read-only, canvas
+	// clicking disabled — so it never gets confused with what ▶ Run targets.
+	let displayScreenshot = $derived(previewAction ? previewAction.screenshotPath : screenshotPath);
+
+	// Effective hoverInfo: a pinned preview shows that step's own recorded marker;
+	// otherwise show current editing state when editing, else the history hover.
 	let effectiveHoverInfo = $derived.by((): HoverInfo => {
+		if (previewAction) return actionToHoverInfo(previewAction);
 		// When editing a click/hover action with coordinates, show those
 		if ((selectedAction === 'click' || selectedAction === 'hover') && clickCoordinates) {
 			return { type: selectedAction, coordinates: clickCoordinates };
@@ -1253,9 +1277,10 @@
 									src={versionedSrc(displayScreenshot)}
 									{viewport}
 									onclick={handleClick}
-									clickEnabled={selectedAction === 'click' ||
-										selectedAction === 'hover' ||
-										selectedAction === 'dismiss'}
+									clickEnabled={previewIndex === null &&
+										(selectedAction === 'click' ||
+											selectedAction === 'hover' ||
+											selectedAction === 'dismiss')}
 									hoverInfo={effectiveHoverInfo}
 								/>
 								{#snippet failed()}
@@ -1283,7 +1308,14 @@
 						<!-- Readouts only — contextual to the canvas, so they stay next to it.
 						     The action buttons live in .action-bar below the filmstrip. -->
 						<div class="screenshot-toolbar">
-							{#if actions.length > 0}
+							{#if previewIndex !== null}
+								<span class="preview-badge" title="Read-only preview of a recorded step — the live browser is unchanged">
+									Previewing step #{previewIndex} (read-only)
+								</span>
+								<button class="back-to-live-btn" onclick={() => (previewIndex = null)}>
+									Back to live
+								</button>
+							{:else if actions.length > 0}
 								<span class="position-readout" title="Playhead position">
 									Step {replayedUpTo + 1} / {actions.length}
 								</span>
@@ -1313,9 +1345,8 @@
 								{deletingIndex}
 								onHoverAction={(info) => (hoverInfo = info)}
 								selectedIndex={selectedStep}
+								{previewIndex}
 								onSelect={handleSelectStep}
-								insertMode={isAddMode}
-								onInsertAt={handleInsertAt}
 								{pendingActionPreview}
 								{screenshotVersion}
 							/>
@@ -1408,22 +1439,38 @@
 							}}
 							onscrolldirectionchange={(d) => (scrollDirection = d)}
 							ontextchange={(t) => (typeText = t)}
+							disabled={isLoading}
 						/>
 
 						<ExplanationInput
 							value={explanation}
 							oninput={(v) => (explanation = v)}
+							disabled={isLoading || selectedAction === 'dismiss'}
 							label={selectedAction === 'stop' ? 'Final Answer' : 'Explanation'}
-							placeholder={selectedAction === 'stop'
-								? 'Provide the final answer to the task...'
-								: 'Explain why you are taking this action...'}
+							placeholder={selectedAction === 'dismiss'
+								? 'Not needed — dismissing a popup is not recorded as a step'
+								: selectedAction === 'stop'
+									? 'Provide the final answer to the task...'
+									: 'Explain why you are taking this action...'}
 						/>
 
-						{#if isEditMode && selectedStep !== null}
+						{#if selectedAction === 'dismiss'}
+							<button class="dismiss-btn" onclick={handleDismiss} disabled={isLoading || !canDismiss}>
+								{isLoading ? 'Dismissing...' : 'Dismiss popup'}
+							</button>
+						{:else if isEditMode && selectedStep !== null}
 							{@const idx = selectedStep}
 							{@const step = actions[idx]}
 							<button class="run-btn" onclick={runActiveStep} disabled={isLoading || !canExecute}>
 								{isLoading ? 'Running…' : `▶ Run step #${idx}`}
+							</button>
+							<button
+								class="add-step-btn"
+								onclick={addStepHere}
+								disabled={isLoading}
+								title="Insert a new step at the current browser position, before step #{idx}"
+							>
+								＋ Add a step here
 							</button>
 							<div class="inspector-actions">
 								{#if step && step.afterUrl && step.afterUrl !== step.url}
@@ -1446,10 +1493,6 @@
 									{deletingIndex === idx ? 'Deleting…' : '× Delete step'}
 								</button>
 							</div>
-						{:else if selectedAction === 'dismiss'}
-							<button class="dismiss-btn" onclick={handleDismiss} disabled={isLoading || !canDismiss}>
-								{isLoading ? 'Dismissing...' : 'Dismiss popup'}
-							</button>
 						{:else}
 							<button class="run-btn" onclick={executeAction} disabled={isLoading || !canExecute}>
 								{isLoading ? 'Running…' : '▶ Run new step'}
@@ -1916,6 +1959,32 @@
 		white-space: nowrap;
 	}
 
+	.preview-badge {
+		font-size: 0.8rem;
+		font-weight: 500;
+		color: var(--color-purple-text, var(--color-purple));
+		background: var(--color-purple-bg, var(--color-purple-border));
+		padding: 0.15rem 0.5rem;
+		border-radius: 4px;
+		white-space: nowrap;
+	}
+
+	.back-to-live-btn {
+		font-size: 0.8rem;
+		padding: 0.15rem 0.6rem;
+		background: var(--color-bg-white);
+		color: var(--color-text-secondary);
+		border: 1px solid var(--color-border);
+		border-radius: 4px;
+		cursor: pointer;
+		transition: all 0.15s;
+	}
+
+	.back-to-live-btn:hover {
+		background: var(--color-bg-tertiary);
+		border-color: var(--color-border-hover);
+	}
+
 	.toolbar-btn.sync-btn {
 		color: var(--color-warning-text, #92400e);
 		border-color: var(--color-warning, #f59e0b);
@@ -2056,6 +2125,33 @@
 		padding: var(--space-lg);
 		font-size: 1.1rem;
 		font-weight: 600;
+	}
+
+	/* Secondary "compose a new step here" affordance — dashed so it reads as an
+	   alternative to running the existing step, not the primary action. */
+	.add-step-btn {
+		width: 100%;
+		margin-top: var(--space-sm);
+		padding: var(--space-sm);
+		font-size: 0.9rem;
+		font-weight: 500;
+		color: var(--color-text-secondary);
+		background: transparent;
+		border: 1px dashed var(--color-border);
+		border-radius: var(--radius-md);
+		cursor: pointer;
+		transition: border-color 0.15s, color 0.15s, background 0.15s;
+	}
+
+	.add-step-btn:hover:not(:disabled) {
+		border-color: var(--color-primary);
+		color: var(--color-primary);
+		background: var(--color-primary-light);
+	}
+
+	.add-step-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
 	}
 
 	.dismiss-btn {

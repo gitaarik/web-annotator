@@ -4,17 +4,19 @@
 		oninput: (value: string) => void;
 		placeholder?: string;
 		label?: string;
+		disabled?: boolean;
 	}
 
-	let { value, oninput, placeholder = 'Explain why you are taking this action...', label = 'Explanation' }: Props = $props();
+	let { value, oninput, placeholder = 'Explain why you are taking this action...', label = 'Explanation', disabled = false }: Props = $props();
 </script>
 
-<div class="explanation-input">
+<div class="explanation-input" class:disabled>
 	<label for="explanation">{label}</label>
 	<textarea
 		id="explanation"
 		{value}
 		{placeholder}
+		{disabled}
 		oninput={(e) => oninput(e.currentTarget.value)}
 		rows="3"
 	></textarea>
@@ -49,5 +51,15 @@
 	textarea:focus {
 		outline: none;
 		border-color: var(--color-primary);
+	}
+
+	textarea:disabled {
+		background: var(--color-bg-tertiary);
+		color: var(--color-text-muted);
+		cursor: not-allowed;
+	}
+
+	.explanation-input.disabled label {
+		color: var(--color-text-muted);
 	}
 </style>

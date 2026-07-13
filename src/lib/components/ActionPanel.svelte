@@ -10,12 +10,22 @@
 		ontextchange: (text: string) => void;
 		isEditing?: boolean;
 		onCancelEdit?: () => void;
+		disabled?: boolean;
 	}
 
-	let { selectedAction, scrollDirection, typeText, onactionchange, onscrolldirectionchange, ontextchange, isEditing = false, onCancelEdit }: Props = $props();
+	let { selectedAction, scrollDirection, typeText, onactionchange, onscrolldirectionchange, ontextchange, isEditing = false, onCancelEdit, disabled = false }: Props = $props();
+
+	const actions: { kind: ActionKind; icon: string; label: string; hint: string }[] = [
+		{ kind: 'click', icon: '\u{1F5B1}', label: 'Click', hint: 'Click on the screenshot to select coordinates' },
+		{ kind: 'hover', icon: '\u{1F446}', label: 'Hover', hint: 'Move mouse to coordinates without clicking' },
+		{ kind: 'scroll', icon: '↕', label: 'Scroll', hint: 'Scroll the page up or down' },
+		{ kind: 'type', icon: '⌨', label: 'Type', hint: 'Type text into the focused element' },
+		{ kind: 'wait', icon: '⏳', label: 'Wait', hint: 'Wait for page to finish loading' },
+		{ kind: 'stop', icon: '■', label: 'Stop', hint: 'Finish annotation and provide final answer' }
+	];
 </script>
 
-<div class="action-panel">
+<div class="action-panel" class:disabled>
 	<div class="panel-header">
 		<h3>Select Action</h3>
 		{#if isEditing && onCancelEdit}
@@ -25,130 +35,73 @@
 		{/if}
 	</div>
 
-	<div class="action-options">
-		<label class:selected={selectedAction === 'click'}>
-			<input
-				type="radio"
-				name="action"
-				value="click"
-				checked={selectedAction === 'click'}
-				onchange={() => onactionchange('click')}
-			/>
-			<span class="action-icon">&#128433;</span>
-			Click
-			<span class="action-hint">Click on the screenshot to select coordinates</span>
-		</label>
-
-		<label class:selected={selectedAction === 'hover'}>
-			<input
-				type="radio"
-				name="action"
-				value="hover"
-				checked={selectedAction === 'hover'}
-				onchange={() => onactionchange('hover')}
-			/>
-			<span class="action-icon">&#128070;</span>
-			Hover
-			<span class="action-hint">Move mouse to coordinates without clicking</span>
-		</label>
-
-		<label class:selected={selectedAction === 'scroll'}>
-			<input
-				type="radio"
-				name="action"
-				value="scroll"
-				checked={selectedAction === 'scroll'}
-				onchange={() => onactionchange('scroll')}
-			/>
-			<span class="action-icon">&#8597;</span>
-			Scroll
-		</label>
-
-		{#if selectedAction === 'scroll'}
-			<div class="scroll-direction">
-				<label>
-					<input
-						type="radio"
-						name="direction"
-						value="up"
-						checked={scrollDirection === 'up'}
-						onchange={() => onscrolldirectionchange('up')}
-					/>
-					Up
-				</label>
-				<label>
-					<input
-						type="radio"
-						name="direction"
-						value="down"
-						checked={scrollDirection === 'down'}
-						onchange={() => onscrolldirectionchange('down')}
-					/>
-					Down
-				</label>
-			</div>
-		{/if}
-
-		<label class:selected={selectedAction === 'type'}>
-			<input
-				type="radio"
-				name="action"
-				value="type"
-				checked={selectedAction === 'type'}
-				onchange={() => onactionchange('type')}
-			/>
-			<span class="action-icon">&#9000;</span>
-			Type
-			<span class="action-hint">Type text into the focused element</span>
-		</label>
-
-		{#if selectedAction === 'type'}
-			<div class="type-input">
+	<div class="action-list" role="radiogroup" aria-label="Select action">
+		{#each actions as action (action.kind)}
+			<label class="action-row" class:selected={selectedAction === action.kind}>
 				<input
-					type="text"
-					placeholder="Text to type..."
-					value={typeText}
-					oninput={(e) => ontextchange(e.currentTarget.value)}
+					type="radio"
+					name="action"
+					value={action.kind}
+					checked={selectedAction === action.kind}
+					{disabled}
+					onchange={() => onactionchange(action.kind)}
 				/>
-			</div>
-		{/if}
+				<span class="action-icon">{action.icon}</span>
+				<span class="action-label">{action.label}</span>
+				<span class="action-hint">{action.hint}</span>
+			</label>
 
-		<label class:selected={selectedAction === 'wait'}>
-			<input
-				type="radio"
-				name="action"
-				value="wait"
-				checked={selectedAction === 'wait'}
-				onchange={() => onactionchange('wait')}
-			/>
-			<span class="action-icon">&#9203;</span>
-			Wait
-			<span class="action-hint">Wait for page to finish loading</span>
-		</label>
+			{#if action.kind === 'scroll' && selectedAction === 'scroll'}
+				<div class="action-extra scroll-direction">
+					<label class:selected={scrollDirection === 'up'}>
+						<input
+							type="radio"
+							name="direction"
+							value="up"
+							checked={scrollDirection === 'up'}
+							{disabled}
+							onchange={() => onscrolldirectionchange('up')}
+						/>
+						Up
+					</label>
+					<label class:selected={scrollDirection === 'down'}>
+						<input
+							type="radio"
+							name="direction"
+							value="down"
+							checked={scrollDirection === 'down'}
+							{disabled}
+							onchange={() => onscrolldirectionchange('down')}
+						/>
+						Down
+					</label>
+				</div>
+			{/if}
 
-		<label class:selected={selectedAction === 'stop'}>
-			<input
-				type="radio"
-				name="action"
-				value="stop"
-				checked={selectedAction === 'stop'}
-				onchange={() => onactionchange('stop')}
-			/>
-			<span class="action-icon">&#9632;</span>
-			Stop
-			<span class="action-hint">Finish annotation and provide final answer</span>
-		</label>
+			{#if action.kind === 'type' && selectedAction === 'type'}
+				<div class="action-extra type-input">
+					<input
+						type="text"
+						placeholder="Text to type..."
+						value={typeText}
+						{disabled}
+						oninput={(e) => ontextchange(e.currentTarget.value)}
+					/>
+				</div>
+			{/if}
+		{/each}
 
-		<label class:selected={selectedAction === 'dismiss'} class:dismiss={true}>
+		<label class="action-row dismiss" class:selected={selectedAction === 'dismiss'}>
 			<input
 				type="radio"
 				name="action"
 				value="dismiss"
 				checked={selectedAction === 'dismiss'}
+				{disabled}
 				onchange={() => onactionchange('dismiss')}
 			/>
 			<span class="action-icon">&#10006;</span>
-			Dismiss popup
+			<span class="action-label">Dismiss popup</span>
 			<span class="action-hint">Close a cookie/consent/notification popup — not recorded as a step</span>
 		</label>
 	</div>
@@ -161,11 +114,29 @@
 		border-radius: 8px;
 	}
 
+	/* While a step is running/saving, the whole picker is inert and dimmed so it's
+	   clear you can't change the action mid-flight. */
+	.action-panel.disabled {
+		opacity: 0.55;
+	}
+
+	.action-panel.disabled .action-row {
+		cursor: not-allowed;
+	}
+
+	.action-panel.disabled .action-row:hover {
+		background: none;
+	}
+
+	.action-panel.disabled .action-row.selected {
+		background: var(--color-primary-light);
+	}
+
 	.panel-header {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		margin-bottom: 1rem;
+		margin-bottom: 0.75rem;
 	}
 
 	h3 {
@@ -190,73 +161,104 @@
 		border-color: var(--color-border-hover);
 	}
 
-	.action-options {
+	/* Single collapsed-border list: rows share edges, container owns the outer border. */
+	.action-list {
 		display: flex;
 		flex-direction: column;
-		gap: 0.75rem;
+		border: 1px solid var(--color-border);
+		border-radius: 6px;
+		overflow: hidden;
+		background: var(--color-bg-white);
 	}
 
-	label {
+	.action-row {
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
-		padding: 0.75rem;
-		background: var(--color-bg-white);
-		border: 2px solid var(--color-border);
-		border-radius: 6px;
+		padding: 0.5rem 0.65rem;
+		border-top: 1px solid var(--color-border);
 		cursor: pointer;
-		transition: all 0.2s;
+		transition: background 0.15s;
 	}
 
-	label:hover {
-		border-color: var(--color-border-hover);
+	.action-row:first-child {
+		border-top: none;
 	}
 
-	label.selected {
-		border-color: var(--color-primary);
+	.action-row:hover {
+		background: var(--color-bg-tertiary);
+	}
+
+	.action-row.selected {
 		background: var(--color-primary-light);
+		box-shadow: inset 3px 0 0 var(--color-primary);
 	}
 
 	/* Dismiss is set apart — it's an incidental cleanup, not a task step. */
-	label.dismiss {
-		border-style: dashed;
+	.action-row.dismiss {
+		border-top-style: dashed;
+		color: var(--color-text-muted);
 	}
 
-	label.dismiss.selected {
-		border-color: var(--color-warning, #f59e0b);
+	.action-row.dismiss.selected {
 		background: var(--color-warning-bg, #fef3c7);
+		box-shadow: inset 3px 0 0 var(--color-warning, #f59e0b);
 	}
 
 	.action-icon {
-		font-size: 1.2rem;
+		font-size: 1.1rem;
+		width: 1.4rem;
+		text-align: center;
+		flex-shrink: 0;
+	}
+
+	.action-label {
+		font-size: 0.9rem;
+		font-weight: 500;
 	}
 
 	.action-hint {
-		font-size: 0.75rem;
+		font-size: 0.72rem;
 		color: var(--color-text-muted);
 		margin-left: auto;
+		text-align: right;
+		line-height: 1.2;
+	}
+
+	/* Contextual sub-inputs render as inset strips inside the list. */
+	.action-extra {
+		padding: 0.5rem 0.65rem 0.5rem 2rem;
+		border-top: 1px solid var(--color-border);
+		background: var(--color-bg-tertiary);
 	}
 
 	.scroll-direction {
 		display: flex;
-		gap: 1rem;
-		padding-left: 2rem;
+		gap: 0.75rem;
 	}
 
 	.scroll-direction label {
-		padding: 0.5rem 1rem;
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+		padding: 0.25rem 0.6rem;
+		border: 1px solid var(--color-border);
+		border-radius: 4px;
+		cursor: pointer;
+		font-size: 0.85rem;
 	}
 
-	.type-input {
-		padding-left: 2rem;
+	.scroll-direction label.selected {
+		border-color: var(--color-primary);
+		background: var(--color-primary-light);
 	}
 
 	.type-input input {
 		width: 100%;
 		box-sizing: border-box;
 		padding: 0.5rem 0.75rem;
-		border: 2px solid var(--color-border);
-		border-radius: 6px;
+		border: 1px solid var(--color-border);
+		border-radius: 4px;
 		font-size: 0.9rem;
 		font-family: inherit;
 		background: var(--color-bg-white);
@@ -270,5 +272,10 @@
 
 	input[type='radio'] {
 		accent-color: var(--color-primary);
+		flex-shrink: 0;
+	}
+
+	.action-row input[type='radio'] {
+		margin: 0;
 	}
 </style>

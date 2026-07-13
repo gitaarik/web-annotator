@@ -37,7 +37,9 @@
 		onHoverAction?: (info: HoverInfo) => void;
 		// Which step is open in the right-pane inspector (edit mode). null = add mode.
 		selectedIndex?: number | null;
-		// Click a card to open it for editing.
+		// Which step is pinned for a read-only preview on the canvas, if any.
+		previewIndex?: number | null;
+		// Click a card to pin/unpin its read-only preview.
 		onSelect?: (index: number) => void;
 		// Right pane is in add mode: show the insertion cursor in the strip.
 		insertMode?: boolean;
@@ -66,6 +68,7 @@
 		deletingIndex = null,
 		onHoverAction,
 		selectedIndex = null,
+		previewIndex = null,
 		onSelect,
 		insertMode = false,
 		onInsertAt,
@@ -294,9 +297,8 @@
 				class="action-item"
 				class:selectable={!!onSelect}
 				data-action-index={index}
-				class:replayed={isReplayed(index)}
-				class:next-playable={isNextPlayable(index)}
 				class:editing={selectedIndex === index}
+				class:previewing={previewIndex === index}
 				role={onSelect ? 'button' : undefined}
 				tabindex={onSelect ? 0 : undefined}
 				onclick={() => onSelect?.(index)}
@@ -707,25 +709,25 @@
 		padding: 0.5rem;
 		background: var(--color-bg-white);
 		border-radius: 6px;
-		border-top: 3px solid var(--color-primary);
+		/* Quiet by default: finished and upcoming steps look the same. Only the
+		   current step (the edit target) gets a prominent highlight below, so the
+		   strip reads as "here's where you are" rather than a wall of colour. */
+		border-top: 3px solid var(--color-border);
 		display: flex;
 		flex-direction: column;
 		gap: 0.25rem;
 	}
 
-	.action-item.replayed {
-		border-top-color: var(--color-success);
-		background: var(--color-success-bg);
-	}
-
-	.action-item.next-playable {
-		border-top-color: var(--color-warning);
-		box-shadow: 0 0 0 2px var(--color-warning-bg);
-	}
-
 	.action-item.editing {
 		border-top-color: var(--color-purple);
 		box-shadow: 0 0 0 2px var(--color-purple-border);
+	}
+
+	/* Pinned for a read-only canvas preview — a dashed ring so it reads as "just
+	   looking", distinct from the solid editing/playhead highlights. */
+	.action-item.previewing {
+		outline: 2px dashed var(--color-purple, #7c3aed);
+		outline-offset: 1px;
 	}
 
 	.action-item.current-state {
