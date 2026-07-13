@@ -1,8 +1,6 @@
 # Web Browser Annotation Tool
 
-
-
-A tool for recording and annotating browser sessions to train AI models on web navigation.
+A tool for recording and annotating browser sessions to produce training data for AI models that navigate the web.
 
 ## Quick Start
 
@@ -20,7 +18,7 @@ You can also view the browser directly at http://localhost:6080/vnc.html (noVNC)
 
 An annotator enters a URL and a task prompt, then records step-by-step actions showing how to accomplish that task. Each action includes an explanation of what they're doing and why. The result is exportable training data for AI web agents.
 
-## Features Implemented
+## Features
 
 - **Session management**: Create, list, continue, and export sessions
 - **Live browser control**: Real Chromium instance via Playwright

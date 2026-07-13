@@ -1,3 +1,7 @@
+# Explicit project name so named volumes resolve predictably regardless of the
+# checkout directory (referenced by clear-chrome-profile.sh).
+name: web-annotator
+
 services:
   # Browser automation service with Xvfb (virtual display)
   # noVNC provides browser-based view at http://localhost:6080/vnc.html
