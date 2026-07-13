@@ -500,9 +500,9 @@
 		}
 	}
 
-	async function handleSwitchTab(newTabId: string) {
-		if (!session.id || !tabId || newTabId === tabId) return;
-
+	// Tab operations (switch/new/close) all post to /api/action with the same
+	// loading/response/error plumbing — only the action-specific body differs.
+	async function runTabAction(body: Record<string, unknown>) {
 		tabLoading = true;
 		error = null;
 
@@ -514,13 +514,7 @@
 				tabId: string;
 			}>('/api/action', {
 				method: 'POST',
-				body: {
-					sessionId: session.id,
-					tabId,
-					actionType: 'switchTab',
-					explanation: `Switch to tab`,
-					targetTabId: newTabId
-				}
+				body: { sessionId: session.id, tabId, ...body }
 			});
 
 			screenshotPath = response.screenshotPath;
@@ -536,44 +530,18 @@
 		}
 	}
 
+	async function handleSwitchTab(newTabId: string) {
+		if (!session.id || !tabId || newTabId === tabId) return;
+		await runTabAction({ actionType: 'switchTab', explanation: 'Switch to tab', targetTabId: newTabId });
+	}
+
 	async function handleNewTab() {
 		if (!session.id || !tabId) return;
 
 		const newUrl = window.prompt('Enter URL for new tab:', 'https://');
 		if (!newUrl) return;
 
-		tabLoading = true;
-		error = null;
-
-		try {
-			const response = await apiRequest<{
-				screenshotPath: string;
-				session: { actions: Action[]; tabs?: Tab[] };
-				completed: boolean;
-				tabId: string;
-				newTabId?: string;
-			}>('/api/action', {
-				method: 'POST',
-				body: {
-					sessionId: session.id,
-					tabId,
-					actionType: 'newTab',
-					explanation: `Open new tab: ${newUrl}`,
-					targetUrl: newUrl
-				}
-			});
-
-			screenshotPath = response.screenshotPath;
-			actions = response.session.actions;
-			tabId = response.tabId;
-			if (response.session.tabs) {
-				tabs = response.session.tabs;
-			}
-		} catch (e) {
-			error = getErrorMessage(e);
-		} finally {
-			tabLoading = false;
-		}
+		await runTabAction({ actionType: 'newTab', explanation: `Open new tab: ${newUrl}`, targetUrl: newUrl });
 	}
 
 	async function handleCloseTab(closeTabId: string) {
@@ -585,37 +553,7 @@
 			return;
 		}
 
-		tabLoading = true;
-		error = null;
-
-		try {
-			const response = await apiRequest<{
-				screenshotPath: string;
-				session: { actions: Action[]; tabs?: Tab[] };
-				completed: boolean;
-				tabId: string;
-			}>('/api/action', {
-				method: 'POST',
-				body: {
-					sessionId: session.id,
-					tabId,
-					actionType: 'closeTab',
-					explanation: `Close tab`,
-					targetTabId: closeTabId
-				}
-			});
-
-			screenshotPath = response.screenshotPath;
-			actions = response.session.actions;
-			tabId = response.tabId;
-			if (response.session.tabs) {
-				tabs = response.session.tabs;
-			}
-		} catch (e) {
-			error = getErrorMessage(e);
-		} finally {
-			tabLoading = false;
-		}
+		await runTabAction({ actionType: 'closeTab', explanation: 'Close tab', targetTabId: closeTabId });
 	}
 
 	async function handleDeleteAction(index: number) {
@@ -868,10 +806,7 @@
 
 		// Clear form immediately so user can prepare next action
 		const wasStopAction = selectedAction === 'stop';
-		selectedAction = null;
-		explanation = '';
-		clickCoordinates = null;
-		typeText = '';
+		clearActionForm();
 
 		// If action already running, queue this one
 		if (actionLoading) {
@@ -948,10 +883,7 @@
 
 			// Clear the compose form. If the active step is now an existing one
 			// (mid-insert), the form-sync effect immediately refills it with that step.
-			selectedAction = null;
-			explanation = '';
-			clickCoordinates = null;
-			typeText = '';
+			clearActionForm();
 		} catch (e) {
 			reportError(e);
 		} finally {
@@ -1002,6 +934,15 @@
 		formResyncNonce++;
 	}
 
+	// Reset the inspector form to empty (add mode / after a submit).
+	function clearActionForm() {
+		selectedAction = null;
+		explanation = '';
+		clickCoordinates = null;
+		typeText = '';
+		scrollDirection = 'down';
+	}
+
 	// Prefill the inspector form from a recorded action (edit mode).
 	function prefillForm(action: Action) {
 		clickCoordinates = null;
@@ -1031,11 +972,7 @@
 		if (key === lastFormKey) return;
 		lastFormKey = key;
 		if (selectedStep === null) {
-			selectedAction = null;
-			explanation = '';
-			clickCoordinates = null;
-			typeText = '';
-			scrollDirection = 'down';
+			clearActionForm();
 		} else {
 			const action = actions[selectedStep];
 			if (action) prefillForm(action);
