@@ -1,4 +1,4 @@
-# Web Browser Annotation Tool
+# Web Annotator
 
 A tool for recording and annotating browser sessions to produce training data for AI models that navigate the web.
 
