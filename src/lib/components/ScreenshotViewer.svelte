@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { HoverInfo } from '$lib/types';
+	import { type HoverInfo, coordToPercent } from '$lib/types';
 
 	interface Props {
 		src: string;
@@ -12,10 +12,10 @@
 	let { src, viewport, onclick, clickEnabled = false, hoverInfo = null }: Props = $props();
 
 	let imageElement: HTMLImageElement | undefined = $state();
-	let clickPosition: { x: number; y: number } | null = $state(null);
-	let layoutVersion = $state(0);
+	// The user's just-made click, pinned as a % of the image so it survives resizes.
+	let clickPosition: { left: number; top: number } | null = $state(null);
 
-	// Clear click position when screenshot changes
+	// Clear the transient click marker when the screenshot changes.
 	$effect(() => {
 		src;
 		clickPosition = null;
@@ -24,35 +24,25 @@
 	function handleClick(event: MouseEvent) {
 		if (!clickEnabled || !imageElement || !onclick) return;
 
+		// Reading the live rect is safe here: the user can only click an image
+		// that's already laid out. Map the pointer into screenshot coordinates…
 		const rect = imageElement.getBoundingClientRect();
-		const scaleX = viewport.width / rect.width;
-		const scaleY = viewport.height / rect.height;
+		const x = Math.round(((event.clientX - rect.left) / rect.width) * viewport.width);
+		const y = Math.round(((event.clientY - rect.top) / rect.height) * viewport.height);
 
-		const x = Math.round((event.clientX - rect.left) * scaleX);
-		const y = Math.round((event.clientY - rect.top) * scaleY);
-
-		clickPosition = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+		// …then pin the marker to that same fraction of the image.
+		clickPosition = coordToPercent({ x, y }, viewport);
 		onclick(x, y);
 	}
 
-	function handleImageLoad() {
-		layoutVersion++;
-	}
-
-	// Convert viewport coordinates to display coordinates for click/hover highlight
-	let clickHighlightPosition = $derived.by(() => {
-		// Include layoutVersion in dependencies to trigger recalculation when image loads or resizes
-		void layoutVersion;
-		if (!hoverInfo || (hoverInfo.type !== 'click' && hoverInfo.type !== 'hover') || !imageElement) return null;
-		const rect = imageElement.getBoundingClientRect();
-		if (rect.width === 0) return null;
-		const scaleX = rect.width / viewport.width;
-		const scaleY = rect.height / viewport.height;
-		return {
-			x: hoverInfo.coordinates.x * scaleX,
-			y: hoverInfo.coordinates.y * scaleY
-		};
-	});
+	// Recorded click/hover highlight. Positioned purely by CSS % against the image
+	// box, so it can't drift when the screenshot loads late, is served from cache,
+	// or the window resizes — the failure modes of the old getBoundingClientRect math.
+	let clickHighlight = $derived(
+		hoverInfo && (hoverInfo.type === 'click' || hoverInfo.type === 'hover')
+			? coordToPercent(hoverInfo.coordinates, viewport)
+			: null
+	);
 
 	let scrollDirection = $derived(
 		hoverInfo?.type === 'scroll' ? hoverInfo.direction : null
@@ -62,8 +52,6 @@
 		hoverInfo?.type === 'type' ? hoverInfo.text : null
 	);
 </script>
-
-<svelte:window onresize={() => layoutVersion++} />
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
@@ -78,18 +66,17 @@
 		bind:this={imageElement}
 		{src}
 		alt="Webpage screenshot"
-		onload={handleImageLoad}
 	/>
 	{#if clickPosition && clickEnabled}
 		<div
 			class="click-marker"
-			style="left: {clickPosition.x}px; top: {clickPosition.y}px;"
+			style="left: {clickPosition.left}%; top: {clickPosition.top}%;"
 		></div>
 	{/if}
-	{#if clickHighlightPosition}
+	{#if clickHighlight}
 		<div
 			class="highlight-marker"
-			style="left: {clickHighlightPosition.x}px; top: {clickHighlightPosition.y}px;"
+			style="left: {clickHighlight.left}%; top: {clickHighlight.top}%;"
 		></div>
 	{/if}
 	{#if scrollDirection}

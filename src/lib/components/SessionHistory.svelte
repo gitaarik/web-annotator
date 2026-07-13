@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { type Action, type HoverInfo, formatAction, actionToHoverInfo } from '$lib/types';
+	import { type Action, type HoverInfo, formatAction, actionToHoverInfo, coordToPercent } from '$lib/types';
 	import { formatUrlParts, copyToClipboard } from '$lib/utils/url';
 	import ScreenshotViewer from './ScreenshotViewer.svelte';
 
@@ -81,21 +81,12 @@
 	// the inspector is in add mode.
 	let cursorPosition = $derived(replayedUpTo + 1);
 
-	// The configured viewport (config.ts) can differ from the actual captured
-	// screenshot size, so the viewport ratio would render the thumbnail box at the
-	// wrong shape — tall boxes and misplaced markers. Drive the box from the real
-	// image aspect instead, matching the main ScreenshotViewer (which renders at
-	// natural size). Measured once from the first loaded thumbnail; until then we
-	// fall back to the viewport ratio.
-	let displayAspect = $state<number | null>(null);
-	function measureAspect(e: Event) {
-		if (displayAspect !== null) return;
-		const img = e.currentTarget as HTMLImageElement;
-		if (img.naturalWidth && img.naturalHeight) {
-			displayAspect = img.naturalWidth / img.naturalHeight;
-		}
-	}
-	let thumbAspect = $derived(displayAspect ?? viewport.width / viewport.height);
+	// Thumbnail box shape comes from the same `viewport` the markers are placed
+	// against, so the two can never disagree. The image fills the box with
+	// `object-fit: fill` (see CSS), which maps it linearly onto the box — so a
+	// marker at `x/viewport.width` lands on the exact pixel the action hit,
+	// regardless of the box's aspect. No per-image measurement, no cropping drift.
+	let thumbAspect = $derived(viewport.width / viewport.height);
 
 	// Add cache-busting query param to screenshot URLs
 	function versionedSrc(src: string): string;
@@ -356,12 +347,12 @@
 						<img
 							src={versionedSrc(action.screenshotPath)}
 							alt="Screenshot for action {index}"
-							onload={measureAspect}
 						/>
 						{#if action.type === 'click' && action.coordinates}
+							{@const pos = coordToPercent(action.coordinates, viewport)}
 							<div
 								class="thumbnail-click-marker"
-								style="left: {(action.coordinates.x / viewport.width) * 100}%; top: {(action.coordinates.y / viewport.height) * 100}%;"
+								style="left: {pos.left}%; top: {pos.top}%;"
 							></div>
 						{:else if action.type === 'scroll' && action.direction}
 							<div class="thumbnail-scroll-marker" class:scroll-up={action.direction === 'up'}>
@@ -502,7 +493,7 @@
 					class="screenshot-thumbnail"
 					style="aspect-ratio: {thumbAspect};"
 				>
-					<img src={versionedSrc(currentScreenshot)} alt="Current state" onload={measureAspect} />
+					<img src={versionedSrc(currentScreenshot)} alt="Current state" />
 					<button
 						class="enlarge-btn"
 						onclick={(e) => {
@@ -638,7 +629,7 @@
 									}}
 									title="Click to enlarge"
 								>
-									<img src={versionedSrc(redirect.screenshotPath)} alt="Redirect {i + 1}" onload={measureAspect} />
+									<img src={versionedSrc(redirect.screenshotPath)} alt="Redirect {i + 1}" />
 								</button>
 							{/if}
 							<a
@@ -1076,8 +1067,11 @@
 	.screenshot-thumbnail img {
 		width: 100%;
 		height: 100%;
-		object-fit: cover;
-		object-position: top left;
+		/* `fill` maps the image linearly onto the box, so percentage-positioned
+		   click markers land on the exact pixel. The box aspect is driven by the
+		   same viewport (see thumbAspect), so for viewport-shaped screenshots there
+		   is no visible distortion. `cover` would crop and shift the markers. */
+		object-fit: fill;
 	}
 
 	.thumbnail-click-marker {

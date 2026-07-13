@@ -153,6 +153,27 @@ export function formatAction(action: Action): string {
 }
 
 /**
+ * Maps a recorded coordinate (in screenshot / viewport pixels) to a percentage
+ * position for a CSS overlay marker. Single source of truth for placing
+ * click/hover markers on a screenshot.
+ *
+ * Percentages are resolution-independent: as long as the marker's container
+ * overlays the rendered image and the image maps linearly onto that container
+ * (`height: auto`, or `object-fit: fill`), the marker pins to the exact fraction
+ * of the image the action landed on — with no `getBoundingClientRect` and no
+ * dependence on image-load timing, HTTP caching, or window size.
+ */
+export function coordToPercent(
+	coord: { x: number; y: number },
+	viewport: { width: number; height: number }
+): { left: number; top: number } {
+	return {
+		left: (coord.x / viewport.width) * 100,
+		top: (coord.y / viewport.height) * 100
+	};
+}
+
+/**
  * Converts an action to HoverInfo for display overlay
  */
 export function actionToHoverInfo(action: Action): HoverInfo {
