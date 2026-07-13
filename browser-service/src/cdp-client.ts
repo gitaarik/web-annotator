@@ -109,6 +109,16 @@ export class CdpClient {
 	private screencasting = false;
 	private lastScreencastFrame: string | null = null;
 
+	// In-flight network requests (requestId -> start timestamp), tracked from
+	// browser-process Network events — safe even when the renderer's main thread
+	// is wedged. Lets an action wait for network-idle before the after-screenshot,
+	// so same-URL content (XHR/SPA updates, lazy images) the URL-based settle
+	// heuristic can't see has actually landed. Start timestamps let waitForNetworkIdle
+	// ignore long-lived connections (SSE, streams) that never complete.
+	// lastNetworkActivityAt is the ms timestamp of the most recent start/completion.
+	private inflightRequests = new Map<string, number>();
+	private lastNetworkActivityAt = 0;
+
 	constructor(
 		public readonly cdpPort: number,
 		public readonly browserWsUrl: string
@@ -182,6 +192,10 @@ export class CdpClient {
 				// dialogs. An unhandled dialog blocks the renderer's main thread,
 				// which stalls screenshots and every other CDP call.
 				this.send('Page.enable').catch(() => {});
+				// Track network activity so an action can wait for network-idle before
+				// its after-screenshot (see waitForNetworkIdle). Browser-process events,
+				// so this keeps working even when the renderer main thread is blocked.
+				this.send('Network.enable').catch(() => {});
 				// Seed the URL cache from the browser process. On reconnect to an
 				// already-loaded page no navigation event fires, so without this the
 				// cache would stay empty until the next navigation.
@@ -253,17 +267,29 @@ export class CdpClient {
 			return;
 		}
 
-		if (this.forensicsEnabled && method === 'Network.requestWillBeSent') {
-			const url = (params?.request as { url?: string } | undefined)?.url;
-			if (url) {
-				const domain = domainOf(url);
-				if (domain) this.loadedDomains.set(domain, (this.loadedDomains.get(domain) ?? 0) + 1);
-				const vendor = matchVendor(url);
-				if (vendor && !this.detectedVendors.has(vendor)) {
-					this.detectedVendors.add(vendor);
-					console.warn(`[CDP][forensics] anti-bot vendor seen: ${vendor}  (${url.slice(0, 120)})`);
+		if (method === 'Network.requestWillBeSent') {
+			const requestId = params?.requestId as string | undefined;
+			if (requestId) this.inflightRequests.set(requestId, Date.now());
+			this.lastNetworkActivityAt = Date.now();
+			if (this.forensicsEnabled) {
+				const url = (params?.request as { url?: string } | undefined)?.url;
+				if (url) {
+					const domain = domainOf(url);
+					if (domain) this.loadedDomains.set(domain, (this.loadedDomains.get(domain) ?? 0) + 1);
+					const vendor = matchVendor(url);
+					if (vendor && !this.detectedVendors.has(vendor)) {
+						this.detectedVendors.add(vendor);
+						console.warn(`[CDP][forensics] anti-bot vendor seen: ${vendor}  (${url.slice(0, 120)})`);
+					}
 				}
 			}
+			return;
+		}
+
+		if (method === 'Network.loadingFinished' || method === 'Network.loadingFailed') {
+			const requestId = params?.requestId as string | undefined;
+			if (requestId) this.inflightRequests.delete(requestId);
+			this.lastNetworkActivityAt = Date.now();
 			return;
 		}
 
@@ -289,6 +315,10 @@ export class CdpClient {
 			if (frame && !frame.parentId) {
 				if (frame.id) this.mainFrameId = frame.id;
 				if (frame.url) this.currentUrl = frame.url;
+				// A full document load supersedes any requests from the old page;
+				// drop them so a stragglier that never emits a completion event can't
+				// keep the network looking permanently busy.
+				this.inflightRequests.clear();
 			}
 			return;
 		}
@@ -732,6 +762,32 @@ export class CdpClient {
 	async stopScreencast(): Promise<void> {
 		this.screencasting = false;
 		await this.send('Page.stopScreencast');
+	}
+
+	/**
+	 * Resolve once the network has been quiet — no in-flight requests — for
+	 * `idleMs` continuously, or after `maxMs` overall, whichever comes first. The
+	 * max bound is essential: a page with a persistent connection (SSE, long-poll)
+	 * never reaches true idle, so we cap the wait rather than block the action.
+	 *
+	 * Reads only browser-process request state, so it stays responsive even when
+	 * the renderer's main thread is wedged.
+	 */
+	async waitForNetworkIdle(idleMs: number, maxMs: number): Promise<void> {
+		const deadline = Date.now() + maxMs;
+		while (Date.now() < deadline) {
+			const now = Date.now();
+			// Count only recently-started requests. A request in flight longer than
+			// the whole budget is a persistent connection (SSE, stream, hung socket),
+			// not action-triggered content — waiting on it would just stall every
+			// action, so ignore it and let genuinely-quiet pages settle fast.
+			let active = 0;
+			for (const startedAt of this.inflightRequests.values()) {
+				if (now - startedAt < maxMs) active++;
+			}
+			if (active === 0 && now - this.lastNetworkActivityAt >= idleMs) return;
+			await new Promise((resolve) => setTimeout(resolve, 100));
+		}
 	}
 
 	getLastScreencastFrame(): string | null {

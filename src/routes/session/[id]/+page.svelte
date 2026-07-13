@@ -89,6 +89,11 @@
 	// Sequential polling guard: only one screenshot capture is ever in flight, so
 	// slow captures can't stack into a thundering herd on the CDP connection.
 	let pollingActive = false;
+	// After an action's server round-trip resolves we keep polling live frames for
+	// a short trailing window before stopping, so paints that land just after the
+	// server's settle (lazy images, late XHR, animations) still reach the canvas
+	// without a manual refresh. Holds the pending "really stop now" timer.
+	let trailingStopTimeout: ReturnType<typeof setTimeout> | null = null;
 
 	// Visual loading state (can be hidden while action still processing)
 	let showLoadingIndicator = $state(false);
@@ -242,20 +247,40 @@
 	}
 
 	function startScreenshotPolling() {
-		if (pollingActive) return;
-		pollingActive = true;
+		// A fresh action supersedes any trailing wind-down from the previous one,
+		// so its scheduled stop can't cut this action's live updates short.
+		if (trailingStopTimeout) {
+			clearTimeout(trailingStopTimeout);
+			trailingStopTimeout = null;
+		}
+
 		showLoadingIndicator = true;
 		lateUpdateShown = false;
 
 		// Hide indicator after 1 second (polling continues in background)
 		// But keep showing if there's a queued action
+		if (hideIndicatorTimeout) clearTimeout(hideIndicatorTimeout);
 		hideIndicatorTimeout = setTimeout(() => {
 			if (pendingAction === null) {
 				showLoadingIndicator = false;
 			}
 		}, 1000);
 
+		if (pollingActive) return; // already looping (e.g. still in the trailing window)
+		pollingActive = true;
 		pollTick();
+	}
+
+	// End-of-action stop that keeps live frames flowing for a short trailing window
+	// first, so paints that land just after the server's settle still reach the
+	// canvas without a manual refresh. A new action (via startScreenshotPolling)
+	// cancels this and takes over.
+	function settleScreenshotPolling() {
+		if (!pollingActive || trailingStopTimeout) return;
+		trailingStopTimeout = setTimeout(() => {
+			trailingStopTimeout = null;
+			stopScreenshotPolling();
+		}, 1500);
 	}
 
 	function stopScreenshotPolling() {
@@ -267,6 +292,10 @@
 		if (hideIndicatorTimeout) {
 			clearTimeout(hideIndicatorTimeout);
 			hideIndicatorTimeout = null;
+		}
+		if (trailingStopTimeout) {
+			clearTimeout(trailingStopTimeout);
+			trailingStopTimeout = null;
 		}
 		showLoadingIndicator = false;
 	}
@@ -411,7 +440,7 @@
 		} catch (e) {
 			reportError(e);
 		} finally {
-			stopScreenshotPolling();
+			settleScreenshotPolling();
 			replayLoading = false;
 			runningIndex = null;
 
@@ -772,7 +801,7 @@
 		} catch (e) {
 			reportError(e);
 		} finally {
-			stopScreenshotPolling();
+			settleScreenshotPolling();
 			actionLoading = false;
 		}
 	}
@@ -922,7 +951,7 @@
 		} catch (e) {
 			reportError(e);
 		} finally {
-			stopScreenshotPolling();
+			settleScreenshotPolling();
 			actionLoading = false;
 			pendingActionPreview = null;
 

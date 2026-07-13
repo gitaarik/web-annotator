@@ -430,8 +430,10 @@ async function fetchUrl(sessionId: string): Promise<string> {
 }
 
 /**
- * Wait for page to stabilize by polling URL and checking for changes.
- * This is a simplified version since browser-service handles most stability checks.
+ * Wait for the page to stabilize after an action or navigation. Two signals:
+ * a URL-change settle (catches navigations/redirects), then a network-idle
+ * settle (catches same-URL content — XHR/SPA updates, lazy images — that the
+ * URL check can't see, and which is the usual cause of a stale after-screenshot).
  */
 async function waitForStable(sessionId: string): Promise<void> {
 	// Simple stability check: wait a bit, then verify no immediate redirects
@@ -448,6 +450,26 @@ async function waitForStable(sessionId: string): Promise<void> {
 		}
 		lastUrl = currentUrl;
 		await sleep(500);
+	}
+
+	// Content settle: hold until the network goes quiet (or the cap is hit) so
+	// the after-screenshot reflects content the action set in motion. Returns
+	// fast when nothing is loading; only waits when there's genuinely traffic.
+	await waitForNetworkIdle(sessionId);
+}
+
+/**
+ * Ask browser-service to wait for network-idle. Best-effort: if the service
+ * can't report it, fall back silently to the timer-based settle above.
+ */
+async function waitForNetworkIdle(sessionId: string): Promise<void> {
+	try {
+		await browserApi<{ success: boolean }>('POST', `/sessions/${sessionId}/network-idle`, {
+			idleMs: 500,
+			maxMs: browserConfig.networkIdleTimeout
+		});
+	} catch {
+		// Best-effort; the URL/DOM timers already gave a reasonable settle.
 	}
 }
 

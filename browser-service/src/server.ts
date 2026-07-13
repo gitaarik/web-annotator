@@ -467,6 +467,26 @@ app.get('/sessions/:id/viewport', async (req, res) => {
 	}
 });
 
+// Wait for network-idle: no in-flight requests for `idleMs` continuously, capped
+// at `maxMs`. Lets the app hold the after-screenshot until content an action
+// triggered (same-URL XHR/SPA updates, lazy images) the URL-based settle misses
+// has landed, instead of forcing a manual refresh.
+app.post('/sessions/:id/network-idle', async (req, res) => {
+	try {
+		const client = await getCdpClient(req.params.id);
+		if (!client) {
+			res.status(404).json({ error: 'Session not found' });
+			return;
+		}
+		const idleMs = typeof req.body?.idleMs === 'number' ? req.body.idleMs : 500;
+		const maxMs = typeof req.body?.maxMs === 'number' ? req.body.maxMs : 5000;
+		await client.waitForNetworkIdle(idleMs, maxMs);
+		res.json({ success: true });
+	} catch (err) {
+		sendError(res, err);
+	}
+});
+
 // =============================================================================
 // SCREENSHOT ENDPOINT
 // =============================================================================
