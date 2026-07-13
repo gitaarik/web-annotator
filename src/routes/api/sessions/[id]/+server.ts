@@ -2,13 +2,21 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getSession, deleteSession, updateSession } from '$lib/server/storage';
 import { createTab, getViewport, refreshScreenshot } from '$lib/server/browser';
+import { inlineScreenshots } from '$lib/server/screenshots';
 import { notFound, badRequest, browserErrorResponse } from '$lib/server/api-utils';
 
-export const GET: RequestHandler = async ({ params }) => {
+export const GET: RequestHandler = async ({ params, url }) => {
 	const session = await getSession(params.id);
 
 	if (!session) {
 		return notFound('Session not found');
+	}
+
+	// `?inline=true` returns a portable, self-contained session: screenshots are
+	// embedded as base64 data URLs instead of file paths. Used by Export so the
+	// downloaded JSON can be re-imported anywhere (import decodes them back).
+	if (url.searchParams.get('inline') === 'true') {
+		return json({ session: await inlineScreenshots(session), viewport: getViewport() });
 	}
 
 	return json({ session, viewport: getViewport() });

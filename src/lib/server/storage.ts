@@ -1,6 +1,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import type { AnnotationSession, Action, Tab } from '$lib/types';
+import { materializeScreenshots } from './screenshots';
 
 const DATA_DIR = path.join(process.cwd(), 'data', 'sessions');
 
@@ -63,8 +64,12 @@ export async function importSession(session: AnnotationSession): Promise<Annotat
 		createdAt: new Date().toISOString()
 	};
 
-	await fs.writeFile(getSessionPath(newId), JSON.stringify(importedSession, null, 2));
-	return importedSession;
+	// Decode any inline (base64) screenshots from a portable export back into
+	// files under the new session's directory, rewriting the paths to match.
+	const materialized = await materializeScreenshots(importedSession, newId);
+
+	await fs.writeFile(getSessionPath(newId), JSON.stringify(materialized, null, 2));
+	return materialized;
 }
 
 export async function getSession(sessionId: string): Promise<AnnotationSession | null> {

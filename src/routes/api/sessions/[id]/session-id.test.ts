@@ -28,7 +28,8 @@ describe('GET /api/sessions/[id]', () => {
 		vi.mocked(storage.getSession).mockResolvedValue(mockSession);
 
 		const response = await GET({
-			params: { id: 'session-1' }
+			params: { id: 'session-1' },
+			url: new URL('http://localhost/api/sessions/session-1')
 		} as Parameters<typeof GET>[0]);
 		const data = await response.json();
 
@@ -37,11 +38,27 @@ describe('GET /api/sessions/[id]', () => {
 		expect(data.viewport).toEqual({ width: 1280, height: 800 });
 	});
 
+	it('inlines screenshots when ?inline=true (missing file left as path)', async () => {
+		vi.mocked(storage.getSession).mockResolvedValue(mockSession);
+
+		const response = await GET({
+			params: { id: 'session-1' },
+			url: new URL('http://localhost/api/sessions/session-1?inline=true')
+		} as Parameters<typeof GET>[0]);
+		const data = await response.json();
+
+		expect(response.status).toBe(200);
+		// The referenced file doesn't exist in the test env, so inlining is a no-op
+		// (best-effort) — but the request still succeeds via the inline branch.
+		expect(data.session.initialScreenshot).toBe('/screenshots/session-1/0.png');
+	});
+
 	it('returns 404 when session not found', async () => {
 		vi.mocked(storage.getSession).mockResolvedValue(null);
 
 		const response = await GET({
-			params: { id: 'non-existent' }
+			params: { id: 'non-existent' },
+			url: new URL('http://localhost/api/sessions/non-existent')
 		} as Parameters<typeof GET>[0]);
 		const data = await response.json();
 

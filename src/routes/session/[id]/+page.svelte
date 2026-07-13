@@ -455,7 +455,11 @@
 
 	async function handleExportSession() {
 		try {
-			const response = await apiRequest<{ session: unknown }>(`/api/sessions/${session.id}`);
+			// inline=true embeds screenshots as base64 so the file is self-contained
+			// and can be re-imported anywhere.
+			const response = await apiRequest<{ session: unknown }>(
+				`/api/sessions/${session.id}?inline=true`
+			);
 
 			const blob = new Blob([JSON.stringify(response.session, null, 2)], { type: 'application/json' });
 			const downloadUrl = URL.createObjectURL(blob);

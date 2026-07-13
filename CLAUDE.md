@@ -38,5 +38,5 @@ pnpm check        # Type check
 ## Patterns
 
 - API routes return `{ success: true, data }` or `{ success: false, error }`
-- Screenshots stored as base64 data URLs in session JSON
+- Screenshots are stored as image files under `static/screenshots/<id>/` and referenced by path in the session JSON. Export inlines them as base64 data URLs (`?inline=true`) so the file is portable; import decodes them back to files (see `src/lib/server/screenshots.ts`)
 - Tests use vitest with `vi.mock()` for mocking modules
