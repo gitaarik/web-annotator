@@ -1,5 +1,5 @@
 <script lang="ts">
-	type ActionKind = 'click' | 'hover' | 'scroll' | 'type' | 'wait' | 'stop' | 'dismiss';
+	type ActionKind = 'click' | 'hover' | 'scroll' | 'type' | 'stop' | 'dismiss';
 
 	interface Props {
 		selectedAction: ActionKind | null;
@@ -20,7 +20,6 @@
 		{ kind: 'hover', icon: '\u{1F446}', label: 'Hover', hint: 'Move mouse to coordinates without clicking' },
 		{ kind: 'scroll', icon: '↕', label: 'Scroll', hint: 'Scroll the page up or down' },
 		{ kind: 'type', icon: '⌨', label: 'Type', hint: 'Type text into the focused element' },
-		{ kind: 'wait', icon: '⏳', label: 'Wait', hint: 'Wait for page to finish loading' },
 		{ kind: 'stop', icon: '■', label: 'Stop', hint: 'Finish annotation and provide final answer' }
 	];
 </script>

@@ -5,7 +5,6 @@ import {
 	executeHover,
 	executeScroll,
 	executeType,
-	executeWait,
 	getCurrentUrl,
 	createTab,
 	switchTab,
@@ -109,18 +108,6 @@ const actionHandlers: Record<string, ActionHandler> = {
 			return badRequest('Text required for type action');
 		}
 		const actionResult = await executeType(ctx.tabId, ctx.text, ctx.sessionId, ctx.screenshotIndex);
-		return {
-			actionResult,
-			screenshotPath: actionResult.beforeScreenshot,
-			currentScreenshot: actionResult.afterScreenshot,
-			url: actionResult.beforeUrl,
-			currentUrl: actionResult.afterUrl,
-			currentTabId: ctx.tabId
-		};
-	},
-
-	async wait(ctx) {
-		const actionResult = await executeWait(ctx.tabId, ctx.sessionId, ctx.screenshotIndex);
 		return {
 			actionResult,
 			screenshotPath: actionResult.beforeScreenshot,

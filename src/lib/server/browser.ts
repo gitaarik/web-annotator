@@ -160,6 +160,31 @@ async function saveScreenshot(
 }
 
 /**
+ * Seed the cached viewport from the live browser's real CSS dimensions.
+ *
+ * The viewport drives click-coordinate scaling on the frontend. It's normally
+ * refreshed as a side effect of captureScreenshot, but on a fresh session the
+ * init and live-view screenshots come from the push-based screencast frame,
+ * which carries no dimensions — so without this the first step would scale
+ * clicks against the stale default (the Chrome *outer* window size) and land
+ * them off-target. Called at launch so the viewport is correct before the first
+ * interaction. Best-effort: a failure just leaves the previous value in place.
+ */
+async function seedViewport(browserSessionId: string): Promise<void> {
+	try {
+		const result = await browserApi<{ viewport?: { width: number; height: number } }>(
+			'GET',
+			`/sessions/${browserSessionId}/viewport`
+		);
+		if (result.viewport) {
+			state.setViewport(result.viewport);
+		}
+	} catch {
+		// Best-effort — captureScreenshot will correct it on the first action.
+	}
+}
+
+/**
  * Captures a screenshot via browser-service and saves it locally.
  * Also updates the current viewport from the browser.
  */
@@ -245,6 +270,10 @@ export async function createTab(
 	state.setActiveTabId(tabId);
 	state.setActiveSessionId(sessionId);
 
+	// Seed the viewport from the real browser so the first interaction scales
+	// click coordinates correctly (the live screencast frame carries no size).
+	await seedViewport(sessionId);
+
 	return {
 		tabId,
 		url: currentUrl,
@@ -287,6 +316,10 @@ export async function restartBrowser(
 	state.setTab(tabId, { sessionId: browserSessionId, url: currentUrl });
 	state.setActiveTabId(tabId);
 	state.setActiveSessionId(browserSessionId);
+
+	// Seed the viewport from the fresh browser so clicks scale correctly before
+	// the first action runs a capture.
+	await seedViewport(browserSessionId);
 
 	return {
 		tabId,
@@ -686,20 +719,6 @@ export async function executeType(
 	});
 }
 
-export async function executeWait(
-	tabId: string,
-	sessionId: string,
-	actionIndex: number
-): Promise<ActionResult> {
-	const browserSessionId = getSessionId(tabId);
-	return executeActionWithTracking(
-		{ tabId, sessionId, actionIndex, trackRedirects: false, updateLocalUrl: false },
-		async () => {
-			await waitForStable(browserSessionId);
-		}
-	);
-}
-
 export async function replaySingleAction(
 	tabId: string,
 	action: {
@@ -743,7 +762,7 @@ export async function replaySingleAction(
 					charDelayMs: inputConfig.charDelayMs
 				});
 			}
-			// For 'wait' and 'stop' actions, just wait for page stability
+			// For 'stop' actions, just wait for page stability
 		}
 	);
 }

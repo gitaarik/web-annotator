@@ -61,7 +61,7 @@ export interface DismissEvent {
 }
 
 export interface Action {
-	type: 'click' | 'hover' | 'scroll' | 'type' | 'wait' | 'stop' | 'newTab' | 'switchTab' | 'closeTab';
+	type: 'click' | 'hover' | 'scroll' | 'type' | 'stop' | 'newTab' | 'switchTab' | 'closeTab';
 	tabId: string;
 	explanation: string;
 	timestamp: string;
@@ -139,8 +139,6 @@ export function formatAction(action: Action): string {
 			return `Scroll ${action.direction}`;
 		case 'type':
 			return `Type "${action.text}"`;
-		case 'wait':
-			return 'Wait';
 		case 'stop':
 			return 'Stop';
 		case 'newTab':

@@ -46,14 +46,6 @@ describe('formatAction', () => {
 		expect(formatAction(action)).toBe('Type "Hello World"');
 	});
 
-	it('formats wait action', () => {
-		const action: Action = {
-			...baseAction,
-			type: 'wait'
-		};
-		expect(formatAction(action)).toBe('Wait');
-	});
-
 	it('formats stop action', () => {
 		const action: Action = {
 			...baseAction,

@@ -28,7 +28,7 @@
 
 	// Input state
 	let selectedAction = $state<
-		'click' | 'hover' | 'scroll' | 'type' | 'wait' | 'stop' | 'dismiss' | null
+		'click' | 'hover' | 'scroll' | 'type' | 'stop' | 'dismiss' | null
 	>(null);
 	let scrollDirection = $state<'up' | 'down'>('down');
 	let typeText = $state('');
@@ -992,7 +992,7 @@
 		clickCoordinates = null;
 		typeText = '';
 		scrollDirection = 'down';
-		const supported = ['click', 'hover', 'scroll', 'type', 'wait', 'stop'] as const;
+		const supported = ['click', 'hover', 'scroll', 'type', 'stop'] as const;
 		selectedAction = supported.includes(action.type as (typeof supported)[number])
 			? (action.type as (typeof supported)[number])
 			: null;
@@ -1309,8 +1309,9 @@
 								</div>
 							{/if}
 						</div>
-						<!-- Readouts only — contextual to the canvas, so they stay next to it.
-						     The action buttons live in .action-bar below the filmstrip. -->
+						<!-- Contextual to the canvas, so it stays next to it: readouts plus
+						     Refresh (which acts on the live screenshot). Session-global
+						     actions live in .action-bar below the filmstrip. -->
 						<div class="screenshot-toolbar">
 							{#if previewIndex !== null}
 								<span class="preview-badge" title="Read-only preview of a recorded step — the live browser is unchanged">
@@ -1326,6 +1327,16 @@
 							{/if}
 							{#if clickCoordinates && (selectedAction === 'click' || selectedAction === 'hover' || selectedAction === 'dismiss')}
 								<span class="coordinates">Selected: ({clickCoordinates.x}, {clickCoordinates.y})</span>
+							{/if}
+							{#if previewIndex === null && isAddMode}
+								<button
+									class="toolbar-btn refresh-btn"
+									onclick={handleRefreshScreenshot}
+									disabled={refreshLoading}
+									title="Refresh screenshot"
+								>
+									{refreshLoading ? '...' : '↻'} Refresh
+								</button>
 							{/if}
 						</div>
 					{:else}
@@ -1375,16 +1386,6 @@
 							</button>
 						{/if}
 						<div class="toolbar-buttons">
-							{#if isAddMode}
-								<button
-									class="toolbar-btn"
-									onclick={handleRefreshScreenshot}
-									disabled={refreshLoading}
-									title="Refresh screenshot"
-								>
-									{refreshLoading ? '...' : '↻'} Refresh
-								</button>
-							{/if}
 							<button
 								class="toolbar-btn"
 								onclick={handleExportSession}
@@ -1901,6 +1902,12 @@
 		align-items: center;
 		gap: var(--space-md);
 		min-height: 1.5rem;
+	}
+
+	/* Refresh acts on the live screenshot, so it lives in this strip — pushed to
+	   the right edge, clear of the readouts. */
+	.screenshot-toolbar .refresh-btn {
+		margin-left: auto;
 	}
 
 	/* Session-global action bar, below the history filmstrip. */

@@ -469,6 +469,24 @@ app.get('/sessions/:id/screencast/frame', async (req, res) => {
 	}
 });
 
+// Report the real CSS viewport (innerWidth/innerHeight). Lets the app seed its
+// coordinate-scaling factor without forcing a screenshot capture — the live
+// screencast frame carries no dimensions, so this is the cheap way to learn them
+// before the first recorded action runs a capture.
+app.get('/sessions/:id/viewport', async (req, res) => {
+	try {
+		const client = await getCdpClient(req.params.id);
+		if (!client) {
+			res.status(404).json({ error: 'Session not found' });
+			return;
+		}
+		const viewportInfo = await client.getContentViewportInfo();
+		res.json({ viewport: { width: viewportInfo.innerWidth, height: viewportInfo.innerHeight } });
+	} catch (err) {
+		sendError(res, err);
+	}
+});
+
 // =============================================================================
 // SCREENSHOT ENDPOINT
 // =============================================================================
