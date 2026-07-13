@@ -1153,6 +1153,10 @@
 	});
 </script>
 
+<svelte:head>
+	<title>{session.prompt} · Web Annotator</title>
+</svelte:head>
+
 <main>
 	<div class="page-header">
 		<button class="back-btn" onclick={goHome}>&larr;</button>
