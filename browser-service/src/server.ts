@@ -307,26 +307,6 @@ app.post('/sessions/:id/click', async (req, res) => {
 	}
 });
 
-// Describe the element at coordinates (for capturing a dismissal's locator).
-app.post('/sessions/:id/element-at', async (req, res) => {
-	try {
-		const { x, y } = req.body;
-		if (typeof x !== 'number' || typeof y !== 'number') {
-			res.status(400).json({ error: 'x and y coordinates required' });
-			return;
-		}
-		const client = await getCdpClient(req.params.id);
-		if (!client) {
-			res.status(404).json({ error: 'Session not found' });
-			return;
-		}
-		const locator = await client.describeElementAt(x, y);
-		res.json({ locator });
-	} catch (err) {
-		sendError(res, err);
-	}
-});
-
 app.post('/sessions/:id/move', async (req, res) => {
 	try {
 		const { x, y } = req.body;

@@ -609,24 +609,10 @@ export async function executeClick(
 	});
 }
 
-export interface ElementLocator {
-	tag?: string;
-	text?: string;
-	ariaLabel?: string;
-	role?: string;
-	id?: string;
-	classes?: string[];
-}
-
-export interface DismissResult extends ActionResult {
-	locator: ElementLocator | null;
-}
-
 /**
- * Dismiss a popup/overlay by clicking at the given coordinates. Captures the
- * target element's locator *before* clicking it away (so it can be recognized
- * again on the same site), plus before/after screenshots and URL. Same click
- * path as a normal click, but recorded as a dismissal rather than a task action.
+ * Dismiss a popup/overlay by clicking at the given coordinates. Same click path
+ * as a normal click, but kept separate and unrecorded: it clears an obstruction
+ * in the live browser so recording can continue, without adding a task step.
  */
 export async function executeDismiss(
 	tabId: string,
@@ -634,10 +620,9 @@ export async function executeDismiss(
 	y: number,
 	sessionId: string,
 	dismissIndex: number
-): Promise<DismissResult> {
+): Promise<ActionResult> {
 	const browserSessionId = getSessionId(tabId);
-	let locator: ElementLocator | null = null;
-	const result = await executeActionWithTracking(
+	return executeActionWithTracking(
 		{
 			tabId,
 			sessionId,
@@ -647,17 +632,6 @@ export async function executeDismiss(
 			updateLocalUrl: false
 		},
 		async () => {
-			// Capture what we're about to dismiss, before it disappears.
-			try {
-				const res = await browserApi<{ locator: ElementLocator | null }>(
-					'POST',
-					`/sessions/${browserSessionId}/element-at`,
-					{ x, y }
-				);
-				locator = res.locator;
-			} catch {
-				// Best-effort — a missing locator shouldn't block the dismissal.
-			}
 			await browserApi<{ success: boolean }>('POST', `/sessions/${browserSessionId}/click`, {
 				x,
 				y,
@@ -665,7 +639,6 @@ export async function executeDismiss(
 			});
 		}
 	);
-	return { ...result, locator };
 }
 
 export async function executeHover(

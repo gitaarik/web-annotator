@@ -6,7 +6,7 @@
 	import ExplanationInput from '$lib/components/ExplanationInput.svelte';
 	import SessionHistory from '$lib/components/SessionHistory.svelte';
 	import TabBar from '$lib/components/TabBar.svelte';
-	import { type Action, type HoverInfo, type Tab, type DismissEvent, formatAction, actionToHoverInfo } from '$lib/types';
+	import { type Action, type HoverInfo, type Tab, formatAction, actionToHoverInfo } from '$lib/types';
 	import { apiRequest, getErrorMessage, ApiError } from '$lib/api';
 
 	let { data } = $props();
@@ -23,7 +23,6 @@
 
 	// Action state
 	let actions = $state<Action[]>(session.actions ?? []);
-	let dismissals = $state<DismissEvent[]>(session.dismissals ?? []);
 	let isCompleted = $state(!!session.finalAnswer);
 
 	// Input state
@@ -322,7 +321,7 @@
 
 		try {
 			const response = await apiRequest<{
-				session: { actions: Action[]; tabs?: Tab[]; dismissals?: DismissEvent[] };
+				session: { actions: Action[]; tabs?: Tab[] };
 				screenshotPath: string;
 				viewport: { width: number; height: number };
 				tabId: string;
@@ -336,7 +335,6 @@
 			screenshotPath = response.screenshotPath;
 			viewport = response.viewport;
 			actions = response.session.actions;
-			dismissals = response.session.dismissals ?? [];
 
 			// On reconnect, restore the playhead persisted with the Chrome session so
 			// history continues where it left off. A freshly launched Chrome starts
@@ -744,8 +742,9 @@
 		}
 	}
 
-	// Dismiss a popup/overlay at the selected coordinates. Recorded as a
-	// DismissEvent (separate from task actions) and does NOT move the playhead.
+	// Dismiss a popup/overlay at the selected coordinates. Clears the obstruction
+	// in the live browser so recording can continue; it's not a recorded task step
+	// and does NOT move the playhead.
 	async function handleDismiss() {
 		if (!session.id || !tabId || !clickCoordinates) return;
 
@@ -755,20 +754,16 @@
 
 		try {
 			const response = await apiRequest<{
-				session: { dismissals?: DismissEvent[] };
 				screenshotPath: string;
 				currentUrl?: string;
 				tabId: string;
 			}>(`/api/sessions/${session.id}/dismiss`, {
 				method: 'POST',
-				// Dismiss isn't a recorded task step, so it carries no explanation —
-				// don't leak whatever was prefilled for the active step into it.
-				body: { tabId, coordinates: clickCoordinates, explanation: '' }
+				body: { tabId, coordinates: clickCoordinates }
 			});
 
 			screenshotPath = response.screenshotPath;
 			currentUrl = response.currentUrl ?? null;
-			dismissals = response.session.dismissals ?? [];
 
 			// Dismiss didn't move the playhead, so drop back onto whatever you were
 			// working on: re-sync the inspector to re-prefill the active step (edit
@@ -779,19 +774,6 @@
 		} finally {
 			stopScreenshotPolling();
 			actionLoading = false;
-		}
-	}
-
-	async function handleDeleteDismissal(id: string) {
-		if (!session.id) return;
-		try {
-			const response = await apiRequest<{ session: { dismissals?: DismissEvent[] } }>(
-				`/api/sessions/${session.id}/dismiss`,
-				{ method: 'DELETE', body: { dismissalId: id } }
-			);
-			dismissals = response.session.dismissals ?? [];
-		} catch (e) {
-			reportError(e);
 		}
 	}
 
@@ -1482,37 +1464,6 @@
 							</button>
 						{/if}
 
-						{#if dismissals.length > 0}
-							<div class="dismissals-panel">
-								<div class="dismissals-header">Dismissed popups ({dismissals.length})</div>
-								<ul class="dismissals-list">
-									{#each dismissals as d (d.id)}
-										<li class="dismissal-item">
-											{#if d.screenshotBefore}
-												<img
-													class="dismissal-thumb"
-													src={versionedSrc(d.screenshotBefore)}
-													alt="Dismissed popup"
-												/>
-											{/if}
-											<div class="dismissal-meta">
-												<span class="dismissal-label">
-													{d.locator?.text || d.locator?.ariaLabel || d.locator?.tag || 'element'}
-												</span>
-												<span class="dismissal-domain">{d.domain}</span>
-											</div>
-											<button
-												class="dismissal-delete"
-												onclick={() => handleDeleteDismissal(d.id)}
-												title="Remove this dismissal record"
-											>
-												×
-											</button>
-										</li>
-									{/each}
-								</ul>
-							</div>
-						{/if}
 					{/if}
 				</div>
 			</div>
@@ -2145,90 +2096,6 @@
 
 	.dismiss-btn:hover:not(:disabled) {
 		background: var(--color-warning-hover, #d97706);
-	}
-
-	.dismissals-panel {
-		margin-top: var(--space-md);
-		padding: var(--space-md);
-		background: var(--color-bg-tertiary);
-		border: 1px dashed var(--color-border);
-		border-radius: var(--radius-md);
-	}
-
-	.dismissals-header {
-		font-size: 0.8rem;
-		font-weight: 600;
-		color: var(--color-text-muted);
-		margin-bottom: var(--space-sm);
-	}
-
-	.dismissals-list {
-		list-style: none;
-		margin: 0;
-		padding: 0;
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-xs);
-	}
-
-	.dismissal-item {
-		display: flex;
-		align-items: center;
-		gap: var(--space-sm);
-		padding: var(--space-xs);
-		background: var(--color-bg-white);
-		border-radius: var(--radius-sm);
-	}
-
-	.dismissal-thumb {
-		width: 48px;
-		height: 32px;
-		object-fit: cover;
-		object-position: top left;
-		border-radius: var(--radius-sm);
-		border: 1px solid var(--color-border);
-		flex-shrink: 0;
-	}
-
-	.dismissal-meta {
-		display: flex;
-		flex-direction: column;
-		min-width: 0;
-		flex: 1;
-	}
-
-	.dismissal-label {
-		font-size: 0.8rem;
-		color: var(--color-text-secondary);
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-
-	.dismissal-domain {
-		font-size: 0.7rem;
-		color: var(--color-text-muted);
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-
-	.dismissal-delete {
-		flex-shrink: 0;
-		width: 24px;
-		height: 24px;
-		border: none;
-		border-radius: var(--radius-sm);
-		background: var(--color-bg-tertiary);
-		color: var(--color-text-muted);
-		font-size: 1rem;
-		line-height: 1;
-		cursor: pointer;
-	}
-
-	.dismissal-delete:hover {
-		background: var(--color-danger, #ef4444);
-		color: white;
 	}
 
 	/* Now a "filmstrip" under the screenshot (bottom-left of the grid). min-width:0

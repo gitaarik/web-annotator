@@ -907,51 +907,6 @@ export class CdpClient {
 	}
 
 	/**
-	 * Describe the element at the given viewport (CSS px) coordinates. Used to
-	 * capture a robust-ish locator for a dismissed popup before it's clicked away.
-	 * Returns null if nothing is there.
-	 */
-	async describeElementAt(x: number, y: number): Promise<{
-		tag?: string;
-		text?: string;
-		ariaLabel?: string;
-		role?: string;
-		id?: string;
-		classes?: string[];
-	} | null> {
-		return this.rendererOp(async () => {
-			const expr = `(() => {
-				const el = document.elementFromPoint(${x}, ${y});
-				if (!el) return null;
-				const attr = (n) => el.getAttribute(n) || undefined;
-				const cls = typeof el.className === 'string'
-					? el.className.split(/\\s+/).filter(Boolean).slice(0, 8)
-					: undefined;
-				return {
-					tag: el.tagName ? el.tagName.toLowerCase() : undefined,
-					text: ((el.innerText || el.textContent || '').trim().slice(0, 100)) || undefined,
-					ariaLabel: attr('aria-label'),
-					role: attr('role'),
-					id: el.id || undefined,
-					classes: cls && cls.length ? cls : undefined
-				};
-			})()`;
-			const result = (await this.send('Runtime.evaluate', {
-				expression: expr,
-				returnByValue: true
-			})) as { result?: { value?: Record<string, unknown> | null } };
-			return (result?.result?.value as {
-				tag?: string;
-				text?: string;
-				ariaLabel?: string;
-				role?: string;
-				id?: string;
-				classes?: string[];
-			} | null) ?? null;
-		});
-	}
-
-	/**
 	 * Scroll the page.
 	 */
 	async scroll(deltaX: number, deltaY: number, x?: number, y?: number): Promise<void> {
