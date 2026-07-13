@@ -18,6 +18,7 @@ pnpm check        # Type check
 - `src/lib/types.ts` - Shared types (Action, AnnotationSession, Tab)
 - `src/routes/api/` - API endpoints
 - `src/routes/session/[id]/` - Session viewer page
+- `browser-service/` - Standalone browser-control service (Chrome + OS-level input via HTTP API); the app talks to it over `BROWSER_SERVICE_URL`
 - `data/sessions/` - Session JSON files (gitignored)
 
 ## Key Concepts
