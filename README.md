@@ -4,15 +4,26 @@ A tool for recording and annotating browser sessions to produce training data fo
 
 ## Quick Start
 
+Bring up both services (browser + app) in Docker:
+
 ```bash
-pnpm install
-pnpm docker:browser  # Start the browser service (in one terminal)
-pnpm dev             # Start the dev server (in another terminal)
+docker compose up    # or: pnpm docker:up (detached)
 ```
 
 Then open http://localhost:5173
 
 You can also view the browser directly at http://localhost:6080/vnc.html (noVNC).
+
+### Local development
+
+To run the app on the host (hot reload straight from your editor) with only the
+browser service in Docker:
+
+```bash
+pnpm install
+pnpm docker:browser  # browser service only (docker compose up browser-service)
+pnpm dev             # app dev server on the host
+```
 
 ### Sample sessions
 

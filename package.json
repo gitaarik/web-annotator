@@ -25,7 +25,7 @@
 		"docker:down": "docker compose down",
 		"docker:restart": "docker compose down && docker compose build && docker compose up -d",
 		"docker:logs": "docker compose logs -f",
-		"docker:browser": "docker compose up"
+		"docker:browser": "docker compose up browser-service"
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-auto": "^7.0.1",
