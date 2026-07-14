@@ -1,5 +1,7 @@
 # Web Annotator
 
+[![CI](https://github.com/gitaarik/web-annotator/actions/workflows/ci.yml/badge.svg)](https://github.com/gitaarik/web-annotator/actions/workflows/ci.yml)
+
 A tool for recording and annotating browser sessions to produce training data for AI models that navigate the web.
 
 ## Quick Start
@@ -7,7 +9,7 @@ A tool for recording and annotating browser sessions to produce training data fo
 Bring up both services (browser + app) in Docker:
 
 ```bash
-docker compose up    # or: pnpm docker:up (detached)
+docker compose up    # or: npm run docker:up (detached)
 ```
 
 Then open http://localhost:5173
@@ -20,25 +22,25 @@ To run the app on the host (hot reload straight from your editor) with only the
 browser service in Docker:
 
 ```bash
-pnpm install
-pnpm docker:browser  # browser service only (docker compose up browser-service)
-pnpm dev             # app dev server on the host
+npm install
+npm run docker:browser  # browser service only (docker compose up browser-service)
+npm run dev             # app dev server on the host
 ```
 
 ### Sample sessions
 
 The repo ships with a couple of example sessions in `samples/` so a fresh clone
 has something to explore. They're seeded into the (gitignored) runtime
-directories automatically before `pnpm dev`; you can also run it by hand:
+directories automatically before `npm run dev`; you can also run it by hand:
 
 ```bash
-pnpm seed
+npm run seed
 ```
 
 Seeding is idempotent — it never overwrites a session you already have, so it's
 safe to run any time. To add your own sample, export a session, drop it into
 `samples/<name>/` as `session.json` alongside a `shots/` folder of the images it
-references, and re-run `pnpm seed`.
+references, and re-run `npm run seed`.
 
 ## What It Does
 
@@ -65,7 +67,7 @@ An annotator enters a URL and a task prompt, then records step-by-step actions s
 - `src/routes/api/` - API endpoints for browser control
 - `src/lib/components/` - UI components
 - `src/lib/server/` - Server-side browser management
-- `samples/` - Bundled example sessions (seeded into place by `pnpm seed`)
+- `samples/` - Bundled example sessions (seeded into place by `npm run seed`)
 - `scripts/seed-samples.mjs` - Copies `samples/` into the runtime dirs
 - `data/sessions/` - Saved session JSON files (gitignored)
 - `static/screenshots/` - Screenshot image files (gitignored)

@@ -10,9 +10,8 @@ RUN useradd -m -s /bin/bash webapp
 
 WORKDIR /app
 
-# Install dependencies first for better layer caching.
-# No lockfile is committed, and npm workspaces needs the workspace
-# package.json present to resolve, so copy it before installing.
+# Install dependencies first for better layer caching. npm workspaces needs
+# each workspace's package.json present to resolve, so copy it before installing.
 COPY package.json ./
 COPY browser-service/package.json ./browser-service/
 RUN npm install

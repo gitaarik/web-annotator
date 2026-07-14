@@ -53,7 +53,7 @@
 	);
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
+<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <div
 	class="screenshot-container"
 	class:clickable={clickEnabled}

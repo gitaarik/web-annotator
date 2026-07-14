@@ -12,7 +12,9 @@
 	let { data } = $props();
 
 	// Session data from server (loaded instantly)
+	// svelte-ignore state_referenced_locally
 	let session = $state(data.session);
+	// svelte-ignore state_referenced_locally
 	let viewport = $state(data.viewport);
 
 	// Browser state (loaded progressively)

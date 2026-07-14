@@ -2,6 +2,14 @@
 	"name": "web-annotator",
 	"private": true,
 	"version": "0.0.1",
+	"description": "Record and annotate browser sessions to produce training data for AI web agents.",
+	"license": "MIT",
+	"author": "Rik <gitaarik@posteo.net>",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/gitaarik/web-annotator.git"
+	},
+	"homepage": "https://github.com/gitaarik/web-annotator#readme",
 	"type": "module",
 	"workspaces": [
 		"browser-service"

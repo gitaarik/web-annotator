@@ -282,6 +282,7 @@
 				</button>
 			{/if}
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<!-- svelte-ignore a11y_click_events_have_key_events -->
 			<!-- svelte-ignore a11y_click_events_have_key_events -->
 			<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 			<div
@@ -467,6 +468,7 @@
 		{#if currentScreenshot && !pendingActionPreview}
 			{@const addingAtEnd = insertMode && cursorPosition >= actions.length}
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<!-- svelte-ignore a11y_click_events_have_key_events -->
 			<!-- svelte-ignore a11y_click_events_have_key_events -->
 			<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 			<div
@@ -561,6 +563,7 @@
 
 {#if expandedAction?.screenshotPath}
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<div class="screenshot-modal" onclick={() => expandedAction = null}>
 		<button class="modal-close" onclick={() => expandedAction = null}>×</button>
 		<div class="modal-screenshot">
@@ -575,6 +578,7 @@
 
 {#if expandedScreenshotSrc}
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<div class="screenshot-modal" onclick={() => expandedScreenshotSrc = null}>
 		<button class="modal-close" onclick={() => expandedScreenshotSrc = null}>×</button>
 		<div class="modal-screenshot">
@@ -588,6 +592,7 @@
 
 {#if detailsAction}
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<div class="details-modal" onclick={() => detailsAction = null}>
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
 		<div class="details-modal-content" onclick={(e) => e.stopPropagation()}>
@@ -887,6 +892,7 @@
 		text-overflow: ellipsis;
 		display: -webkit-box;
 		-webkit-line-clamp: 3;
+		line-clamp: 3;
 		-webkit-box-orient: vertical;
 		height: calc(0.75rem * 1.3 * 3); /* Fixed 3 lines */
 	}

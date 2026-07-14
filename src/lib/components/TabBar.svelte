@@ -34,14 +34,15 @@
 <div class="tab-bar">
 	<div class="tabs-container">
 		{#each openTabs as tab (tab.id)}
-			<button
-				class="tab"
-				class:active={tab.id === activeTabId}
-				onclick={() => onSwitchTab(tab.id)}
-				disabled={loading}
-				title={tab.url}
-			>
-				<span class="tab-label">{getTabLabel(tab)}</span>
+			<div class="tab" class:active={tab.id === activeTabId} class:disabled={loading}>
+				<button
+					class="tab-main"
+					onclick={() => onSwitchTab(tab.id)}
+					disabled={loading}
+					title={tab.url}
+				>
+					<span class="tab-label">{getTabLabel(tab)}</span>
+				</button>
 				{#if openTabs.length > 1}
 					<button
 						class="close-btn"
@@ -52,7 +53,7 @@
 						&times;
 					</button>
 				{/if}
-			</button>
+			</div>
 		{/each}
 	</div>
 
@@ -89,7 +90,6 @@
 		background: var(--color-bg-tertiary);
 		border: 1px solid var(--color-border);
 		border-radius: var(--radius-md);
-		cursor: pointer;
 		font-size: 0.85rem;
 		color: var(--color-text-secondary);
 		max-width: 200px;
@@ -97,7 +97,7 @@
 		transition: all 0.15s ease;
 	}
 
-	.tab:hover:not(:disabled) {
+	.tab:hover:not(.disabled) {
 		background: var(--color-bg-white);
 		border-color: var(--color-border-hover);
 	}
@@ -109,8 +109,24 @@
 		font-weight: 500;
 	}
 
-	.tab:disabled {
+	.tab.disabled {
 		opacity: 0.6;
+	}
+
+	.tab-main {
+		display: flex;
+		align-items: center;
+		flex: 1;
+		min-width: 0;
+		padding: 0;
+		background: none;
+		border: none;
+		font: inherit;
+		color: inherit;
+		cursor: pointer;
+	}
+
+	.tab-main:disabled {
 		cursor: not-allowed;
 	}
 
