@@ -1269,7 +1269,7 @@
 							{#if clickCoordinates && (selectedAction === 'click' || selectedAction === 'hover' || selectedAction === 'dismiss')}
 								<span class="coordinates">Selected: ({clickCoordinates.x}, {clickCoordinates.y})</span>
 							{/if}
-							{#if previewIndex === null && isAddMode}
+							{#if previewIndex === null}
 								<button
 									class="toolbar-btn refresh-btn"
 									onclick={handleRefreshScreenshot}
