@@ -1,17 +1,269 @@
 {
-  "id": "133d7273-5207-43aa-87ef-e99edef9a3e1",
-  "url": "https://www.trip.com/",
-  "prompt": "what are the 3 cheapest hotel stays in Paris for 5 nights starting November, 20 with at least 4-stars rating?",
-  "plan": "Ha",
-  "createdAt": "2026-05-20T18:54:44.429Z",
+  "id": "bda2f428-f922-464e-977d-1959c4ed3615",
+  "url": "https://trip.com/",
+  "prompt": "Book a trip from Amsterdam to Paris for first Saturday, a week from now, one person, one way, below €400, between 12:00 and 15:00",
+  "createdAt": "2026-07-13T18:47:51.707Z",
   "tabs": [
     {
-      "id": "tab-1779303283495-4z11s2",
-      "url": "https://www.trip.com/",
-      "createdAt": "2026-05-20T18:54:44.429Z"
+      "id": "tab-1783968468909-gtzzj2",
+      "url": "https://trip.com/",
+      "createdAt": "2026-07-13T18:47:51.707Z"
     }
   ],
-  "activeTabId": "tab-1779303283495-4z11s2",
-  "actions": [],
-  "initialScreenshot": "/screenshots/133d7273-5207-43aa-87ef-e99edef9a3e1/refresh-1779303284036.webp"
+  "activeTabId": "tab-1783968468909-gtzzj2",
+  "actions": [
+    {
+      "type": "click",
+      "tabId": "tab-1783968622099-jw27gt",
+      "explanation": "Click the \"Flights\" menu button to go to the flights search page",
+      "timestamp": "2026-07-13T18:50:49.024Z",
+      "screenshotPath": "/screenshots/bda2f428-f922-464e-977d-1959c4ed3615/replay-0-before.webp",
+      "url": "https://www.trip.com/",
+      "coordinates": {
+        "x": 597,
+        "y": 334
+      }
+    },
+    {
+      "type": "click",
+      "tabId": "tab-1783968622099-jw27gt",
+      "explanation": "Click the \"Leaving from\" input field to focus it, in order to type text into it",
+      "timestamp": "2026-07-13T18:52:10.988Z",
+      "screenshotPath": "/screenshots/bda2f428-f922-464e-977d-1959c4ed3615/replay-1-before.webp",
+      "url": "https://www.trip.com/",
+      "coordinates": {
+        "x": 408,
+        "y": 458
+      }
+    },
+    {
+      "type": "type",
+      "tabId": "tab-1783969362066-nho028",
+      "explanation": "Type \"Amsterdam\" in the \"Leaving from\" input box to search for flights leaving from Amsterdam",
+      "timestamp": "2026-07-13T19:03:21.968Z",
+      "screenshotPath": "/screenshots/bda2f428-f922-464e-977d-1959c4ed3615/replay-2-before.webp",
+      "url": "https://www.trip.com/",
+      "text": "Amsterdam"
+    },
+    {
+      "type": "click",
+      "tabId": "tab-1783969362066-nho028",
+      "explanation": "Click the first auto-search-suggestion \"Amsterdam - All airports\"",
+      "timestamp": "2026-07-13T19:03:46.513Z",
+      "screenshotPath": "/screenshots/bda2f428-f922-464e-977d-1959c4ed3615/replay-3-before.webp",
+      "url": "https://www.trip.com/",
+      "coordinates": {
+        "x": 408,
+        "y": 538
+      }
+    },
+    {
+      "type": "click",
+      "tabId": "tab-1783969362066-nho028",
+      "explanation": "Click the \"Going to\" input box to focus it in order to type text in it",
+      "timestamp": "2026-07-13T19:04:15.710Z",
+      "screenshotPath": "/screenshots/bda2f428-f922-464e-977d-1959c4ed3615/replay-4-before.webp",
+      "url": "https://www.trip.com/",
+      "coordinates": {
+        "x": 632,
+        "y": 459
+      }
+    },
+    {
+      "type": "type",
+      "tabId": "tab-1783976991342-ja37sg",
+      "explanation": "Enter \"Paris\" in the \"Going to\" input text field",
+      "timestamp": "2026-07-13T21:11:34.087Z",
+      "screenshotPath": "/screenshots/bda2f428-f922-464e-977d-1959c4ed3615/6-before.webp",
+      "url": "https://www.trip.com/",
+      "text": "Paris"
+    },
+    {
+      "type": "click",
+      "tabId": "tab-1783976991342-ja37sg",
+      "explanation": "Click the first auto-search-suggestion \"Paris - All airports\"",
+      "timestamp": "2026-07-13T21:12:01.146Z",
+      "screenshotPath": "/screenshots/bda2f428-f922-464e-977d-1959c4ed3615/7-before.webp",
+      "url": "https://www.trip.com/",
+      "coordinates": {
+        "x": 610,
+        "y": 532
+      }
+    },
+    {
+      "type": "click",
+      "tabId": "tab-1783976991342-ja37sg",
+      "explanation": "Click the \"One-way\" option of the \"Round-trip\" / \"One-way\" / \"Multi-city\" radio options",
+      "timestamp": "2026-07-13T21:13:05.361Z",
+      "screenshotPath": "/screenshots/bda2f428-f922-464e-977d-1959c4ed3615/8-before.webp",
+      "url": "https://www.trip.com/",
+      "coordinates": {
+        "x": 423,
+        "y": 406
+      }
+    },
+    {
+      "type": "click",
+      "tabId": "tab-1783976991342-ja37sg",
+      "explanation": "Click the date widget to select the desired departure date",
+      "timestamp": "2026-07-13T21:13:43.724Z",
+      "screenshotPath": "/screenshots/bda2f428-f922-464e-977d-1959c4ed3615/9-before.webp",
+      "url": "https://www.trip.com/",
+      "coordinates": {
+        "x": 851,
+        "y": 455
+      }
+    },
+    {
+      "type": "click",
+      "tabId": "tab-1783976991342-ja37sg",
+      "explanation": "Click the next Saturday a week from now on the calendar widget",
+      "timestamp": "2026-07-13T21:14:31.222Z",
+      "screenshotPath": "/screenshots/bda2f428-f922-464e-977d-1959c4ed3615/10-before.webp",
+      "url": "https://www.trip.com/",
+      "coordinates": {
+        "x": 732,
+        "y": 730
+      }
+    },
+    {
+      "type": "click",
+      "tabId": "tab-1783976991342-ja37sg",
+      "explanation": "Click the search option, because \"1 adult\" is already selected",
+      "timestamp": "2026-07-13T21:15:05.537Z",
+      "screenshotPath": "/screenshots/bda2f428-f922-464e-977d-1959c4ed3615/11-before.webp",
+      "url": "https://www.trip.com/",
+      "afterUrl": "https://www.trip.com/flights/showfarefirst?dcity=ams&acity=par&ddate=2026-07-24&rdate=2026-07-27&triptype=ow&class=y&lowpricesource=searchform&quantity=1&searchboxarg=t&nonstoponly=off&locale=en-XX&curr=EUR",
+      "coordinates": {
+        "x": 1117,
+        "y": 532
+      }
+    }
+  ],
+  "initialScreenshot": "/screenshots/bda2f428-f922-464e-977d-1959c4ed3615/refresh-1783968471703.jpg",
+  "dismissals": [
+    {
+      "id": "ccfb2d7c-aa94-4c47-a747-f70c5d6add7d",
+      "tabId": "tab-1783968471788-adb3pu",
+      "coordinates": {
+        "x": 1028,
+        "y": 698
+      },
+      "timestamp": "2026-07-13T18:48:01.843Z",
+      "url": "https://nl.trip.com/?locale=nl-nl",
+      "domain": "nl.trip.com",
+      "locator": {
+        "tag": "div",
+        "text": "Alles accepteren",
+        "role": "button",
+        "id": "ibu-cookie-banner-btn-accept",
+        "classes": [
+          "small"
+        ]
+      },
+      "screenshotBefore": "/screenshots/bda2f428-f922-464e-977d-1959c4ed3615/dismiss-1-before.webp",
+      "screenshotAfter": "/screenshots/bda2f428-f922-464e-977d-1959c4ed3615/dismiss-1-after.webp"
+    },
+    {
+      "id": "d979502d-8fba-45e6-999f-62955e8fb0b2",
+      "tabId": "tab-1783968471788-adb3pu",
+      "coordinates": {
+        "x": 1223,
+        "y": 42
+      },
+      "timestamp": "2026-07-13T18:48:05.352Z",
+      "url": "https://nl.trip.com/?locale=nl-nl",
+      "domain": "nl.trip.com",
+      "locator": {
+        "tag": "path"
+      },
+      "screenshotBefore": "/screenshots/bda2f428-f922-464e-977d-1959c4ed3615/dismiss-2-before.webp",
+      "screenshotAfter": "/screenshots/bda2f428-f922-464e-977d-1959c4ed3615/dismiss-2-after.webp"
+    },
+    {
+      "id": "a461edb1-9dcb-4498-bd8d-c0f223a5c90e",
+      "tabId": "tab-1783968471788-adb3pu",
+      "coordinates": {
+        "x": 471,
+        "y": 135
+      },
+      "timestamp": "2026-07-13T18:48:10.627Z",
+      "url": "https://nl.trip.com/?locale=nl-nl",
+      "domain": "nl.trip.com",
+      "locator": {
+        "tag": "span",
+        "text": "English",
+        "classes": [
+          "country-name"
+        ]
+      },
+      "screenshotBefore": "/screenshots/bda2f428-f922-464e-977d-1959c4ed3615/dismiss-3-before.webp",
+      "screenshotAfter": "/screenshots/bda2f428-f922-464e-977d-1959c4ed3615/dismiss-3-after.webp"
+    },
+    {
+      "id": "0c8f4af0-a198-454b-9ed4-bd18cacfa488",
+      "tabId": "tab-1783968622099-jw27gt",
+      "coordinates": {
+        "x": 1213,
+        "y": 32
+      },
+      "timestamp": "2026-07-13T18:50:26.098Z",
+      "url": "https://www.trip.com/?locale=en_xx&curr=EUR",
+      "domain": "www.trip.com",
+      "locator": {
+        "tag": "i",
+        "classes": [
+          "close-icon",
+          "fi",
+          "fi-close"
+        ]
+      },
+      "screenshotBefore": "/screenshots/bda2f428-f922-464e-977d-1959c4ed3615/dismiss-4-before.webp",
+      "screenshotAfter": "/screenshots/bda2f428-f922-464e-977d-1959c4ed3615/dismiss-4-after.webp"
+    },
+    {
+      "id": "321511c7-f9d7-44df-89b5-438fa633ba13",
+      "tabId": "tab-1783972966128-u5z1u3",
+      "coordinates": {
+        "x": 930,
+        "y": 95
+      },
+      "timestamp": "2026-07-13T20:03:09.738Z",
+      "url": "https://www.trip.com/",
+      "domain": "www.trip.com",
+      "locator": {
+        "tag": "span",
+        "role": "buttton",
+        "classes": [
+          "close-icon",
+          "fi-close",
+          "fi"
+        ]
+      },
+      "screenshotBefore": "/screenshots/bda2f428-f922-464e-977d-1959c4ed3615/dismiss-5-before.webp",
+      "screenshotAfter": "/screenshots/bda2f428-f922-464e-977d-1959c4ed3615/dismiss-5-after.webp"
+    },
+    {
+      "id": "25d979fd-5710-416d-8856-f335f6f47eff",
+      "tabId": "tab-1783973557847-rgg5sh",
+      "coordinates": {
+        "x": 932,
+        "y": 94
+      },
+      "timestamp": "2026-07-13T20:20:15.899Z",
+      "url": "https://www.trip.com/",
+      "domain": "www.trip.com",
+      "locator": {
+        "tag": "span",
+        "role": "buttton",
+        "classes": [
+          "close-icon",
+          "fi-close",
+          "fi"
+        ]
+      },
+      "screenshotBefore": "/screenshots/bda2f428-f922-464e-977d-1959c4ed3615/dismiss-6-before.webp",
+      "screenshotAfter": "/screenshots/bda2f428-f922-464e-977d-1959c4ed3615/dismiss-6-after.webp"
+    }
+  ]
 }
