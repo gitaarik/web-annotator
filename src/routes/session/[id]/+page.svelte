@@ -1315,9 +1315,9 @@
 									class="toolbar-btn refresh-btn"
 									onclick={handleRefreshScreenshot}
 									disabled={refreshLoading}
-									title="Refresh screenshot"
+									title="Force an immediate refresh of the live screenshot"
 								>
-									{refreshLoading ? '...' : '↻'} Refresh
+									{refreshLoading ? '...' : '↻'} Force Refresh
 								</button>
 								<button
 									class="toolbar-btn autorefresh-btn"
@@ -1325,10 +1325,10 @@
 									onclick={() => (autoRefresh = !autoRefresh)}
 									aria-pressed={autoRefresh}
 									title={autoRefresh
-										? 'Auto-refresh on — the live view updates on its own'
-										: 'Auto-refresh off — keep the live view updating automatically'}
+										? 'Auto refresh on — the live view updates on its own'
+										: 'Auto refresh off — keep the live view updating automatically'}
 								>
-									{autoRefresh ? '◉' : '○'} Auto
+									{autoRefresh ? '◉' : '○'} Auto Refresh
 								</button>
 							{/if}
 						</div>
