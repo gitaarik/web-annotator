@@ -46,6 +46,9 @@
 	let runningIndex = $state<number | null>(null);
 	let deletingIndex = $state<number | null>(null);
 	let refreshLoading = $state(false);
+	// Idle auto-refresh toggle: when on, keep pulling the latest pushed screencast
+	// frame so in-page changes that don't navigate still reach the canvas.
+	let autoRefresh = $state(false);
 	let tabLoading = $state(false);
 	let navigatingIndex = $state<number | null>(null);
 
@@ -214,7 +217,10 @@
 				beginWedgeWait();
 				return;
 			}
-			if (data.screenshotPath) {
+			// The server reuses the same path when the screencast frame is unchanged
+			// (idle dedupe), so a matching path means nothing to update — skip the
+			// version bump and the img re-fetch it would trigger.
+			if (data.screenshotPath && data.screenshotPath !== screenshotPath) {
 				const previousPath = screenshotPath;
 				screenshotPath = data.screenshotPath;
 
@@ -329,6 +335,41 @@
 			clearInterval(pollInterval);
 			stopScreenshotPolling();
 		};
+	});
+
+	// Idle auto-refresh loop. While the toggle is on and we're parked on the live
+	// view (not previewing, not mid-action), pull the latest pushed screencast
+	// frame so in-page changes that don't navigate still reach the canvas. Reads
+	// pushed frames only (never forces a capture); the server dedupes unchanged
+	// frames so a static page writes nothing and the canvas doesn't flicker. The
+	// interval closure reads state lazily, so this effect only re-runs on toggle.
+	const AUTO_REFRESH_INTERVAL_MS = 700;
+	let autoRefreshInFlight = false;
+	$effect(() => {
+		if (!autoRefresh) return;
+		const interval = setInterval(async () => {
+			if (
+				autoRefreshInFlight ||
+				isCompleted ||
+				!session.id ||
+				!tabId ||
+				previewIndex !== null ||
+				pollingActive ||
+				browserLoading ||
+				actionLoading ||
+				replayLoading ||
+				browserBusyWaiting ||
+				refreshLoading
+			)
+				return;
+			autoRefreshInFlight = true;
+			try {
+				await pollScreenshot();
+			} finally {
+				autoRefreshInFlight = false;
+			}
+		}, AUTO_REFRESH_INTERVAL_MS);
+		return () => clearInterval(interval);
 	});
 
 	// Persist the playhead to the Chrome session whenever it moves, so a page
@@ -1278,6 +1319,17 @@
 								>
 									{refreshLoading ? '...' : '↻'} Refresh
 								</button>
+								<button
+									class="toolbar-btn autorefresh-btn"
+									class:active={autoRefresh}
+									onclick={() => (autoRefresh = !autoRefresh)}
+									aria-pressed={autoRefresh}
+									title={autoRefresh
+										? 'Auto-refresh on — the live view updates on its own'
+										: 'Auto-refresh off — keep the live view updating automatically'}
+								>
+									{autoRefresh ? '◉' : '○'} Auto
+								</button>
 							{/if}
 						</div>
 					{:else}
@@ -1809,6 +1861,13 @@
 	   the right edge, clear of the readouts. */
 	.screenshot-toolbar .refresh-btn {
 		margin-left: auto;
+	}
+
+	/* Auto-refresh toggle sits next to Refresh; highlight it while active. */
+	.screenshot-toolbar .autorefresh-btn.active {
+		background: var(--color-primary);
+		border-color: var(--color-primary);
+		color: var(--color-bg-white);
 	}
 
 	/* Session-global action bar, below the history filmstrip. */

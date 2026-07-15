@@ -8,6 +8,7 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { createHash } from 'node:crypto';
 import { browserConfig, inputConfig } from './config';
 import type { Redirect } from '$lib/types';
 
@@ -762,6 +763,12 @@ export async function replaySingleAction(
 	);
 }
 
+// Per-session cache of the last live screencast frame written to disk. Idle
+// auto-refresh polls the same unchanged frame repeatedly; deduping by content
+// hash lets those reads reuse the existing file instead of writing a new one
+// every tick. Cleared on closeBrowser.
+const lastLiveFrame = new Map<string, { hash: string; path: string }>();
+
 // Non-live (one-shot) callers always get a string (forced-capture fallback);
 // only live polling can return null (screencast frame not ready yet).
 export function refreshScreenshot(
@@ -790,6 +797,21 @@ export async function refreshScreenshot(
 			`/sessions/${browserSessionId}/screencast/frame`
 		);
 		if (frame.data) {
+			if (opts?.live) {
+				// Unchanged frame → reuse the existing file so idle polling doesn't
+				// churn a new screenshot every tick.
+				const hash = createHash('sha1').update(frame.data).digest('hex');
+				const cached = lastLiveFrame.get(browserSessionId);
+				if (cached && cached.hash === hash) return cached.path;
+				const savedPath = await saveScreenshot(
+					frame.data,
+					browserSessionId,
+					`refresh-${timestamp}`,
+					'jpg'
+				);
+				lastLiveFrame.set(browserSessionId, { hash, path: savedPath });
+				return savedPath;
+			}
 			return saveScreenshot(frame.data, browserSessionId, `refresh-${timestamp}`, 'jpg');
 		}
 	} catch {
@@ -814,6 +836,7 @@ export async function closeBrowser(): Promise<void> {
 		}
 	}
 	state.clear();
+	lastLiveFrame.clear();
 }
 
 export function getViewport() {
