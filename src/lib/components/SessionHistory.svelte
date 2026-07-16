@@ -341,12 +341,17 @@
 					</span>
 				</div>
 				{#if action.screenshotPath}
+					{@const runningLive = isLoading(index) && currentScreenshot ? currentScreenshot : null}
 					<div
 						class="screenshot-thumbnail"
 						style="aspect-ratio: {thumbAspect};"
 					>
+						<!-- While this step is re-running, its recorded thumbnail is stale
+						     (it only updates when the server round-trip returns). Show the
+						     live frame instead so this card tracks the main canvas and the
+						     "Now" card in lockstep, then snaps to the fresh recorded shot. -->
 						<img
-							src={versionedSrc(action.screenshotPath)}
+							src={versionedSrc(runningLive ?? action.screenshotPath)}
 							alt="Screenshot for action {index}"
 						/>
 						{#if action.type === 'click' && action.coordinates}
