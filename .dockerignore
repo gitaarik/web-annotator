@@ -8,4 +8,9 @@ dist
 .gitignore
 data/sessions/*
 !data/sessions/.gitkeep
+# Runtime-written, like data/sessions above: recordings accumulate here and are
+# gitignored, so they must not ride into the image. They would also survive
+# `down -v`, since an empty named volume initializes from the image's contents.
+# The seed repopulates both dirs from samples/ at container start.
+static/screenshots/*
 pnpm-lock.yaml

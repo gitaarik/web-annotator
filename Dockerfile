@@ -20,8 +20,10 @@ RUN npm install
 # but keeps the image runnable on its own.
 COPY . .
 
-# Sessions are written here; create it before the bind mount so it exists.
-RUN mkdir -p /app/data/sessions && chown -R webapp:webapp /app
+# Sessions and screenshots are written here. Both are excluded from the build
+# context, so create them (owned by webapp) before the volumes mount over them —
+# a named volume inherits its mountpoint's ownership when it initializes empty.
+RUN mkdir -p /app/data/sessions /app/static/screenshots && chown -R webapp:webapp /app
 
 USER webapp
 
