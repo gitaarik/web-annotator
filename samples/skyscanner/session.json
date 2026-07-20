@@ -19,7 +19,7 @@
       "explanation": "Click the \"To\" field to select city to fly to",
       "timestamp": "2026-05-20T19:26:55.679Z",
       "screenshotPath": "/screenshots/20ffc38a-af24-4115-a6a5-52ef0bcc0c22/replay-0-before.webp",
-      "url": "https://www.skyscanner.nl/?previousCultureSource=COOKIE&redirectedFrom=www.skyscanner.com",
+      "url": "https://www.skyscanner.nl/?previousCultureSource=GEO_LOCATION&redirectedFrom=www.skyscanner.com",
       "coordinates": {
         "x": 363,
         "y": 333
@@ -31,7 +31,7 @@
       "explanation": "Type \"Barcelona\"",
       "timestamp": "2026-05-20T20:04:59.926Z",
       "screenshotPath": "/screenshots/20ffc38a-af24-4115-a6a5-52ef0bcc0c22/replay-1-before.webp",
-      "url": "https://www.skyscanner.nl/?previousCultureSource=COOKIE&redirectedFrom=www.skyscanner.com",
+      "url": "https://www.skyscanner.nl/?previousCultureSource=GEO_LOCATION&redirectedFrom=www.skyscanner.com",
       "text": "Barcelona"
     },
     {
@@ -40,7 +40,7 @@
       "explanation": "Click on Barcelona",
       "timestamp": "2026-05-20T20:10:28.909Z",
       "screenshotPath": "/screenshots/20ffc38a-af24-4115-a6a5-52ef0bcc0c22/replay-2-before.webp",
-      "url": "https://www.skyscanner.nl/?previousCultureSource=COOKIE&redirectedFrom=www.skyscanner.com",
+      "url": "https://www.skyscanner.nl/?previousCultureSource=GEO_LOCATION&redirectedFrom=www.skyscanner.com",
       "coordinates": {
         "x": 352,
         "y": 415
@@ -52,7 +52,7 @@
       "explanation": "Click on the first upcoming green date",
       "timestamp": "2026-05-20T20:12:18.147Z",
       "screenshotPath": "/screenshots/20ffc38a-af24-4115-a6a5-52ef0bcc0c22/replay-3-before.webp",
-      "url": "https://www.skyscanner.nl/?previousCultureSource=COOKIE&redirectedFrom=www.skyscanner.com",
+      "url": "https://www.skyscanner.nl/?previousCultureSource=GEO_LOCATION&redirectedFrom=www.skyscanner.com",
       "coordinates": {
         "x": 733,
         "y": 607

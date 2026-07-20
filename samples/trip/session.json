@@ -1,7 +1,7 @@
 {
   "id": "bda2f428-f922-464e-977d-1959c4ed3615",
   "url": "https://trip.com/",
-  "prompt": "Book a trip from Amsterdam to Paris for first Saturday, a week from now, one person, one way, below €400, between 12:00 and 15:00",
+  "prompt": "Book a trip from Amsterdam to Paris for the first Saturday, a week from now, one person, one way, below €400, between 10:00 and 18:00",
   "createdAt": "2026-07-13T18:47:51.707Z",
   "tabs": [
     {
@@ -18,7 +18,7 @@
       "explanation": "Click the \"Flights\" menu button to go to the flights search page",
       "timestamp": "2026-07-13T18:50:49.024Z",
       "screenshotPath": "/screenshots/bda2f428-f922-464e-977d-1959c4ed3615/replay-0-before.webp",
-      "url": "https://www.trip.com/",
+      "url": "https://www.trip.com/?locale=en_xx&curr=EUR",
       "coordinates": {
         "x": 597,
         "y": 334
@@ -30,7 +30,7 @@
       "explanation": "Click the \"Leaving from\" input field to focus it, in order to type text into it",
       "timestamp": "2026-07-13T18:52:10.988Z",
       "screenshotPath": "/screenshots/bda2f428-f922-464e-977d-1959c4ed3615/replay-1-before.webp",
-      "url": "https://www.trip.com/",
+      "url": "https://www.trip.com/?locale=en_xx&curr=EUR",
       "coordinates": {
         "x": 408,
         "y": 458
@@ -42,7 +42,7 @@
       "explanation": "Type \"Amsterdam\" in the \"Leaving from\" input box to search for flights leaving from Amsterdam",
       "timestamp": "2026-07-13T19:03:21.968Z",
       "screenshotPath": "/screenshots/bda2f428-f922-464e-977d-1959c4ed3615/replay-2-before.webp",
-      "url": "https://www.trip.com/",
+      "url": "https://www.trip.com/?locale=en_xx&curr=EUR",
       "text": "Amsterdam"
     },
     {
@@ -51,7 +51,7 @@
       "explanation": "Click the first auto-search-suggestion \"Amsterdam - All airports\"",
       "timestamp": "2026-07-13T19:03:46.513Z",
       "screenshotPath": "/screenshots/bda2f428-f922-464e-977d-1959c4ed3615/replay-3-before.webp",
-      "url": "https://www.trip.com/",
+      "url": "https://www.trip.com/?locale=en_xx&curr=EUR",
       "coordinates": {
         "x": 408,
         "y": 538
