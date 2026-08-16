@@ -13,4 +13,6 @@ data/sessions/*
 # `down -v`, since an empty named volume initializes from the image's contents.
 # The seed repopulates both dirs from samples/ at container start.
 static/screenshots/*
+# README illustrations only — no reason to ship them in the image.
+screenshots/
 pnpm-lock.yaml

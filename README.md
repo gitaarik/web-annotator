@@ -4,6 +4,24 @@
 
 A tool for recording and annotating browser sessions to produce training data for AI models that navigate the web.
 
+## Screenshots
+
+Annotating a session: the live browser view on the left, the action editor on the
+right, and the history of recorded steps along the bottom.
+
+![Selecting a click target on the page being annotated](screenshots/01-trip.com-initial-screen.webp)
+
+Each step records the action, its coordinates, and an explanation of *why* the
+annotator did it — here, focusing the "Leaving from" field before typing into it.
+
+![Recording a click on the flight search form, with the explanation field filled in](screenshots/02-trip.com-flight-from.webp)
+
+Actions are drawn onto the screenshot so the recorded step is readable at a
+glance — a marker for clicks and hovers, an arrow for scrolls, and the typed
+text for a `type` action, as with "Amsterdam" below.
+
+![A type action recording the text "Amsterdam", shown as an overlay on the screenshot](screenshots/03-trip.com-enter-amsterdam.webp)
+
 ## Quick Start
 
 Bring up both services (browser + app) in Docker:
