@@ -89,3 +89,8 @@ An annotator enters a URL and a task prompt, then records step-by-step actions s
 - `scripts/seed-samples.mjs` - Copies `samples/` into the runtime dirs
 - `data/sessions/` - Saved session JSON files (gitignored)
 - `static/screenshots/` - Screenshot image files (gitignored)
+
+## License
+
+MIT — see [LICENSE](LICENSE). Free to use, adapt, and learn from; keep the
+copyright notice with any substantial copy.

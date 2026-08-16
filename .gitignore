@@ -25,3 +25,7 @@ vite.config.ts.timestamp-*
 # Annotation data (user-generated)
 /data/sessions/
 /static/screenshots/
+
+# Claude Code: shared config (settings.json, CLAUDE.md) is committed on purpose;
+# the .local.json files are per-machine and hold absolute paths, so they aren't.
+.claude/settings.local.json
